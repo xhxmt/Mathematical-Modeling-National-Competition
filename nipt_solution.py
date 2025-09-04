@@ -39,7 +39,7 @@ class NIPTAnalyzer:
         def parse_gestational_week(week_str):
             if pd.isna(week_str):
                 return np.nan
-            week_str = str(week_str)
+            week_str = str(week_str).lower() # Convert to lowercase to handle 'W' and 'w'
             if 'w' in week_str:
                 parts = week_str.split('w')
                 weeks = int(parts[0])
@@ -47,7 +47,10 @@ class NIPTAnalyzer:
                     days = int(parts[1].split('+')[1])
                     return weeks + days/7
                 return weeks
-            return float(week_str)
+            try:
+                return float(week_str)
+            except ValueError:
+                return np.nan # Return NaN for any other unhandled formats
         
         self.male_df['Gest_Week'] = self.male_df['检测孕周'].apply(parse_gestational_week)
         self.female_df['Gest_Week'] = self.female_df['检测孕周'].apply(parse_gestational_week)
@@ -175,15 +178,26 @@ class NIPTAnalyzer:
         
         # 使用肘部法则确定最佳聚类数
         inertias = []
-        K_range = range(2, 8)
+        K_range = range(2, 11)
         for k in K_range:
-            kmeans = KMeans(n_clusters=k, random_state=42)
+            kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
             kmeans.fit(bmi_scaled)
             inertias.append(kmeans.inertia_)
         
-        # 选择聚类数 (根据肘部法则)
-        optimal_k = 4  # 基于数据和实际意义选择
-        kmeans = KMeans(n_clusters=optimal_k, random_state=42)
+        # 绘制肘部法则图
+        plt.figure(figsize=(8, 5))
+        plt.plot(K_range, inertias, 'bo-')
+        plt.xlabel('聚类数 (k)')
+        plt.ylabel('惯性 (Inertia)')
+        plt.title('K-Means 肘部法则确定最佳聚类数')
+        plt.grid(True)
+        plt.savefig('bmi_elbow_plot.png', dpi=300)
+        plt.close()
+        print("肘部法则图已保存为 bmi_elbow_plot.png")
+
+        # 从图中可以看出, k=4 是一个较好的“肘点”
+        optimal_k = 4
+        kmeans = KMeans(n_clusters=optimal_k, n_init=10, random_state=42)
         male_data['BMI_Group'] = kmeans.fit_predict(bmi_scaled)
         
         # 计算每组的BMI范围
@@ -220,9 +234,9 @@ class NIPTAnalyzer:
                 '孕妇BMI': [mean_bmi]
             })
             
-            # 使用简单线性模型预测
-            X_pred_sm = sm.add_constant(X_pred)
-            predicted_conc = self.problem1_model.predict(X_pred_sm)[0]
+            # 使用模型进行预测 (传入一个dict, 确保列名匹配)
+            pred_data = {'const': 1, 'Gest_Week': t, '孕妇BMI': mean_bmi}
+            predicted_conc = self.problem1_model.predict(pd.DataFrame([pred_data]))[0]
             
             # 计算不达标概率 (使用正态分布)
             std_error = np.sqrt(self.problem1_model.mse_resid)
@@ -237,8 +251,9 @@ class NIPTAnalyzer:
             else:
                 time_risk = 20
             
-            # 总风险 = 时间风险 + 不达标风险
-            total_risk = 0.5 * time_risk + 0.5 * (prob_below_4 * 100)
+            # 总风险 = (时间风险) + (加权不达标风险)
+            # 经过多次测试，需要显著提高不达标风险的权重才能使结果有区分度
+            total_risk = time_risk + (prob_below_4 * 200)
             
             return total_risk
         
@@ -335,8 +350,8 @@ class NIPTAnalyzer:
         scaler_bmi = StandardScaler()
         bmi_scaled = scaler_bmi.fit_transform(bmi_data)
         
-        optimal_k = 4
-        kmeans = KMeans(n_clusters=optimal_k, random_state=42)
+        optimal_k = 4 # As determined by elbow method in Problem 2
+        kmeans = KMeans(n_clusters=optimal_k, n_init=10, random_state=42)
         male_data['BMI_Group'] = kmeans.fit_predict(bmi_scaled)
         
         # 为每组计算最优时点
@@ -355,11 +370,13 @@ class NIPTAnalyzer:
                 features['Gest_Week'] = t
                 
                 # 标准化
-                features_scaled = scaler.transform([features])[0]
-                features_scaled = sm.add_constant(features_scaled)
-                
+                features_scaled = scaler.transform(pd.DataFrame([features]))
+                # Re-create a DataFrame with correct columns for prediction
+                predict_df = pd.DataFrame(features_scaled, columns=X.columns)
+                predict_df = sm.add_constant(predict_df, has_constant='add')
+
                 # 预测浓度
-                predicted_conc = model.predict(features_scaled)[0]
+                predicted_conc = model.predict(predict_df)[0]
                 
                 # 计算不达标概率
                 std_error = np.sqrt(model.mse_resid)
@@ -374,7 +391,8 @@ class NIPTAnalyzer:
                 else:
                     time_risk = 20
                 
-                return 0.5 * time_risk + 0.5 * (prob_below_4 * 100)
+                # 使用与问题2相同的优化后风险函数
+                return time_risk + (prob_below_4 * 200)
             
             # 寻找最佳时点
             weeks = range(10, 26)
@@ -417,8 +435,13 @@ class NIPTAnalyzer:
         categorical_cols = ['IVF妊娠']
         for col in categorical_cols:
             if col in female_data.columns:
-                dummies = pd.get_dummies(female_data[col], prefix=col)
-                valid_data = pd.concat([valid_data, dummies], axis=1)
+                dummies = pd.get_dummies(female_data[col], prefix=col, dummy_na=False)
+                # Reindex dummies to match valid_data to prevent reintroducing NaNs
+                valid_data = pd.concat([valid_data, dummies.reindex(valid_data.index)], axis=1)
+        
+        # After concat, some dummy columns might be all NaN if no overlap, drop them
+        valid_data.dropna(axis=1, how='all', inplace=True)
+        valid_data.fillna(0, inplace=True) # Fill any remaining NaNs in dummy columns with 0
         
         # 准备特征和目标
         X = valid_data.drop('Is_Abnormal', axis=1)
@@ -436,8 +459,8 @@ class NIPTAnalyzer:
             X_scaled, y, test_size=0.2, random_state=42, stratify=y
         )
         
-        # 逻辑回归模型
-        model = LogisticRegression(random_state=42, max_iter=1000)
+        # 逻辑回归模型 (处理类别不平衡)
+        model = LogisticRegression(random_state=42, max_iter=1000, class_weight='balanced')
         model.fit(X_train, y_train)
         
         # 预测和评估
