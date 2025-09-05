@@ -1,54 +1,61 @@
+# 导入所有必需的库
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.optimize import minimize
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler # 用于数据标准化
+from sklearn.ensemble import RandomForestClassifier # 用于分类任务
+from sklearn.metrics import classification_report, roc_auc_score # 用于评估分类模型
+from sklearn.model_selection import train_test_split # 用于划分训练集和测试集
 import warnings
+
+# 忽略所有警告信息
 warnings.filterwarnings('ignore')
 
-# Set matplotlib font
+# 设置matplotlib的全局字体和图形大小
 plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['font.size'] = 10
 plt.rcParams['figure.figsize'] = (12, 8)
 
 class Problem4_DynamicMultiStage:
     """
-    Dynamic Multi-stage Detection Optimization Model for Female Fetuses
-    Based on the dynamic programming formulation in problem4.md
+    这是一个为解决问题四（针对女性胎儿的动态多阶段检测优化）而设计的类。
+    这个问题被构建成一个“动态规划”问题，可以想象成一个需要做出一系列决策的游戏。
+    目标是：在整个孕期（12-28周）内，找到一个最佳的检测“策略”，以最大化长期收益。
+    策略会告诉我们在每个时间点，根据孕妇的当前状况，是应该进行检测还是等待。
     """
-    
+
     def __init__(self, data_path="/home/tfisher/code/math/2025/c-problem/new-plan/processed_data.csv"):
-        """Initialize with processed data"""
+        """
+        类的构造函数。
+        """
         self.df = pd.read_csv(data_path)
+        self.T_max = 28  # 决策的最晚时间（孕周）
+        self.T_min = 12  # 决策的最早时间（孕周）
+        self.max_detections = 3  # 整个孕期最多允许进行3次检测
         self.setup_data()
-        self.T_max = 28  # Maximum gestational week
-        self.T_min = 12  # Minimum gestational week
-        self.max_detections = 3  # Maximum allowed detections
-        
+
     def setup_data(self):
-        """Setup and preprocess data for Problem 4 - Female fetuses analysis"""
-        # Extract gestational week
+        """
+        为问题四准备和预处理数据。
+        这里的关键是筛选出代表“女性胎儿”的代理样本，并定义与染色体异常相关的特征。
+        """
+        # --- 提取孕周数值 ---
         def extract_week(week_str):
-            if pd.isna(week_str):
-                return np.nan
-            try:
-                week_part = str(week_str).split('w')[0]
-                return float(week_part)
-            except:
-                return np.nan
-        
+            if pd.isna(week_str): return np.nan
+            try: return float(str(week_str).split('w')[0])
+            except: return np.nan
         self.df['gestational_week'] = self.df['检测孕周'].apply(extract_week)
-        
-        # Filter for potential female fetuses (lower Y concentration) with complete data
-        # Use bottom 25% of Y concentrations as female proxy
-        y_threshold = self.df['Y_concentration'].quantile(0.25)  # Bottom quartile
-        
+
+        # --- 筛选女性胎儿代理样本 ---
+        # 由于没有直接的女性胎儿标签，我们使用一个代理方法：
+        # 将Y染色体浓度最低的25%的样本视为女性胎儿（因为理论上女性胎儿Y染色体浓度应为0）。
+        y_threshold = self.df['Y_concentration'].quantile(0.25)
+
         self.female_data = self.df[
-            (self.df['Y_concentration'] <= y_threshold) &  # Lower Y concentration (female proxy)
+            (self.df['Y_concentration'] <= y_threshold) &
             (self.df['gestational_week'].notna()) &
-            (self.df['gestational_week'] >= 12) &
-            (self.df['gestational_week'] <= 28) &
+            (self.df['gestational_week'].between(12, 28)) &
             (self.df['孕妇BMI'].notna()) &
             (self.df['GC含量'].notna()) &
             (self.df['X染色体的Z值'].notna()) &
@@ -56,371 +63,215 @@ class Problem4_DynamicMultiStage:
             (self.df['18号染色体的Z值'].notna()) &
             (self.df['13号染色体的Z值'].notna())
         ].copy()
-        
-        # Use actual fetal health status as ground truth
+
+        # --- 定义“异常”事件 ---
+        # 使用真实的“胎儿是否健康”列作为我们最终要预测的目标
         self.female_data['is_abnormal'] = (self.female_data['胎儿是否健康'] == '否')
-        
-        # Also create additional abnormality indicators based on chromosomal Z-values
-        z_threshold = 2.0  # Standard threshold for abnormality
-        
-        self.female_data['chr21_abnormal'] = np.abs(self.female_data['21号染色体的Z值']) > z_threshold
-        self.female_data['chr18_abnormal'] = np.abs(self.female_data['18号染色体的Z值']) > z_threshold
-        self.female_data['chr13_abnormal'] = np.abs(self.female_data['13号染色体的Z值']) > z_threshold
-        self.female_data['chrX_abnormal'] = np.abs(self.female_data['X染色体的Z值']) > z_threshold
-        
-        # Combined Z-score abnormality (any chromosome abnormal)
+        # 同时，也根据各染色体的Z值（一个风险分数）来定义异常
+        z_threshold = 2.0  # Z值大于2通常被认为有风险
         self.female_data['z_abnormal'] = (
-            self.female_data['chr21_abnormal'] | 
-            self.female_data['chr18_abnormal'] | 
-            self.female_data['chr13_abnormal'] | 
-            self.female_data['chrX_abnormal']
+            (np.abs(self.female_data['21号染色体的Z值']) > z_threshold) |
+            (np.abs(self.female_data['18号染色体的Z值']) > z_threshold) |
+            (np.abs(self.female_data['13号染色体的Z值']) > z_threshold) |
+            (np.abs(self.female_data['X染色体的Z值']) > z_threshold)
         )
-        
+
         if len(self.female_data) > 0:
-            # Standardize features for state variables
-            scaler = StandardScaler()
-            features = ['孕妇BMI', 'GC含量', '21号染色体的Z值', '18号染色体的Z值', 
-                       '13号染色体的Z值', 'X染色体的Z值']
-            self.female_data[features] = scaler.fit_transform(self.female_data[features])
-            
-            # Calculate GC change rate (proxy)
+            # 标准化所有数值特征，使得它们在同一尺度上，方便模型处理
+            features_to_scale = ['孕妇BMI', 'GC含量', '21号染色体的Z值', '18号染色体的Z值', '13号染色体的Z值', 'X染色体的Z值']
+            self.female_data[features_to_scale] = StandardScaler().fit_transform(self.female_data[features_to_scale])
+
+            # 计算GC含量变化率
             self.female_data = self.female_data.sort_values(['孕妇代码', 'gestational_week'])
             self.female_data['Delta_GC'] = self.female_data.groupby('孕妇代码')['GC含量'].diff().fillna(0)
-        
-        print(f"Female fetuses (proxy) for Problem 4 analysis: {len(self.female_data)}")
-        print(f"Y concentration threshold (25th percentile): {y_threshold:.6f}")
+
+        print(f"用于问题四分析的女性胎儿代理样本数: {len(self.female_data)}")
         if len(self.female_data) > 0:
-            print(f"Abnormality rate (actual health status): {self.female_data['is_abnormal'].mean()*100:.2f}%")
-            print(f"Z-score abnormality rate: {self.female_data['z_abnormal'].mean()*100:.2f}%")
-        
-    def state_variables(self, t, bmi, gc_change, z_combined):
-        """
-        State space definition: s_t = (BMI_t, GC_t, Z_t, t)
-        """
-        return np.array([bmi, gc_change, z_combined, t])
-    
-    def sensitivity_function(self, state):
-        """
-        Sensitivity function: Sen(s_t) = 1/(1 + exp(-(0.8*Z_t + 0.2*ΔGC_t)))
-        """
-        bmi_t, gc_change, z_t, t = state
-        return 1 / (1 + np.exp(-(0.8 * z_t + 0.2 * gc_change)))
-    
-    def risk_functions(self, t, detection_history):
-        """
-        Risk functions:
-        Risk_1(t) = γ₁ * (t - 22)₊²  (late detection risk)
-        Risk_2(t) = γ₂ * Σ(previous detections)  (repeated detection penalty)
-        """
-        gamma_1, gamma_2 = 0.1, 0.05
-        
-        # Late detection risk (t > 22 weeks)
-        risk_1 = gamma_1 * max(0, t - 22) ** 2 if t > 22 else 0
-        
-        # Repeated detection penalty
-        risk_2 = gamma_2 * sum(detection_history)
-        
-        return risk_1 + risk_2
-    
+            print(f"真实异常率: {self.female_data['is_abnormal'].mean()*100:.2f}%")
+            print(f"基于Z值的异常率: {self.female_data['z_abnormal'].mean()*100:.2f}%")
+
     def reward_function(self, state, action, detection_history):
         """
-        Reward function: R(s_t, a_t) = α·Sen(s_t)·a_t - β·[Risk_1(t) + Risk_2(t)]·a_t
+        定义“收益函数” R(s, a)。
+        这个函数告诉我们，在某个状态s下，采取某个行动a能得到多少“分数”（收益）。
+        收益可以是正的（如成功检测到异常），也可以是负的（如检测成本、风险）。
+        R(s_t, a_t) = α·Sen(s_t)·a_t - β·Risk(t)·a_t
         """
-        alpha, beta = 0.7, 0.3
+        alpha, beta = 0.7, 0.3 # 收益和风险的权重
         bmi_t, gc_change, z_t, t = state
-        
-        if action == 1:  # Detection action
-            sensitivity = self.sensitivity_function(state)
-            risk = self.risk_functions(t, detection_history)
-            return alpha * sensitivity - beta * risk
-        else:  # No detection
+
+        if action == 1:  # 如果行动是“检测”
+            # 收益部分：检测的灵敏度（检测到问题的能力）
+            sensitivity = 1 / (1 + np.exp(-(0.8 * z_t + 0.2 * gc_change)))
+
+            # 风险/成本部分
+            risk_1 = 0.1 * max(0, t - 22) ** 2 # 过晚检测的风险
+            risk_2 = 0.05 * sum(detection_history) # 重复检测的成本
+            total_risk = risk_1 + risk_2
+
+            return alpha * sensitivity - beta * total_risk
+        else:  # 如果行动是“不检测”，则没有收益也没有成本
             return 0
-    
+
     def state_transition(self, current_state, action, noise_std=0.1):
         """
-        State transition equations:
-        BMI_{t+1} = BMI_t + ε_t^(BMI)
-        ΔGC_{t+1} = 0.7 * ΔGC_t + η_t^(GC)
+        定义“状态转移函数”。
+        这个函数描述了世界如何演变。如果我们今天在状态s_t，并采取了行动a_t，
+        那么明天我们会到达哪个新状态s_{t+1}？
+        这里我们用一个简化的模型来模拟孕妇指标的自然变化。
         """
         bmi_t, gc_change, z_t, t = current_state
-        
-        # BMI evolution with noise
+
+        # BMI、GC、Z值都会有一些小的随机波动
         bmi_next = bmi_t + np.random.normal(0, noise_std)
-        
-        # GC change with autoregressive component
-        gc_next = 0.7 * gc_change + np.random.normal(0, noise_std)
-        
-        # Z-score remains relatively stable (small random walk)
+        gc_next = 0.7 * gc_change + np.random.normal(0, noise_std) # GC变化具有一定的自相关性
         z_next = z_t + np.random.normal(0, noise_std * 0.5)
-        
-        # Time increments
-        t_next = t + 1
-        
+        t_next = t + 1 # 时间总是向前流逝
+
         return np.array([bmi_next, gc_next, z_next, t_next])
-    
-    def dynamic_programming_solver(self, sample_states):
+
+    def dynamic_programming_solver(self):
         """
-        Solve Bellman equation using backward induction:
+        动态规划求解器，使用“反向归纳法”来求解贝尔曼方程。
+        核心思想：从最后一天（第28周）开始倒着往回推算。
+        在第28周，我们知道游戏结束了，所以未来的价值是0。
+        然后我们推算第27周的最佳决策：比较“检测”和“不检测”哪个总收益（当前收益 + 未来期望收益）更高。
+        这样一步步倒推到第12周，我们就能得到每个时间点、每种状态下的最优决策。
         V_t(s_t) = max_{a_t} { R(s_t,a_t) + E[V_{t+1}(s_{t+1})] }
         """
-        # Initialize value function and policy
+        # V(t, state_idx, detections_done) -> value
         value_functions = {}
+        # P(t, state_idx, detections_done) -> action
         optimal_policies = {}
-        
-        # Terminal condition (t = T_max)
-        for state_idx in range(len(sample_states)):
-            value_functions[(self.T_max, state_idx)] = 0
-            optimal_policies[(self.T_max, state_idx)] = 0
-        
-        # Backward induction
-        for t in range(self.T_max - 1, self.T_min - 1, -1):
-            for state_idx, base_state in enumerate(sample_states):
-                current_state = np.array([base_state[0], base_state[1], base_state[2], t])
-                
-                best_value = -np.inf
-                best_action = 0
-                
-                # Try both actions (0: no detection, 1: detection)
-                for action in [0, 1]:
-                    # Skip if already reached max detections
-                    detection_history = [0, 0, 0]  # Simplified for demonstration
-                    if action == 1 and sum(detection_history) >= self.max_detections:
-                        continue
-                    
-                    # Calculate immediate reward
-                    immediate_reward = self.reward_function(current_state, action, detection_history)
-                    
-                    # Expected future value (simplified Monte Carlo approximation)
-                    future_value = 0
-                    n_simulations = 50
-                    
-                    for _ in range(n_simulations):
-                        next_state = self.state_transition(current_state, action)
-                        if t + 1 <= self.T_max:
-                            # Approximate future value using nearest state
-                            next_state_idx = min(len(sample_states) - 1, 
-                                               max(0, int(np.linalg.norm(next_state[:3] - base_state[:3]) * 10) % len(sample_states)))
-                            future_value += value_functions.get((t + 1, next_state_idx), 0)
-                    
-                    future_value /= n_simulations
-                    
-                    total_value = immediate_reward + future_value
-                    
-                    if total_value > best_value:
-                        best_value = total_value
-                        best_action = action
-                
-                value_functions[(t, state_idx)] = best_value
-                optimal_policies[(t, state_idx)] = best_action
-        
-        return value_functions, optimal_policies
-    
-    def analyze_optimal_detection_strategy(self):
-        """Analyze optimal detection strategy for female fetuses"""
-        # Create representative states for analysis
-        n_states = 100
-        sample_states = []
-        
-        # Sample from actual data distribution
-        for _ in range(n_states):
-            idx = np.random.choice(len(self.female_data))
-            row = self.female_data.iloc[idx]
-            state = [row['孕妇BMI'], row['Delta_GC'], 
-                    (row['21号染色体的Z值'] + row['18号染色体的Z值'] + 
-                     row['13号染色体的Z值'] + row['X染色体的Z值']) / 4]
-            sample_states.append(state)
-        
-        # Solve using dynamic programming
-        print("Solving dynamic programming problem...")
-        value_functions, optimal_policies = self.dynamic_programming_solver(sample_states)
-        
-        # Analyze results
-        detection_recommendations = []
-        
-        for t in range(self.T_min, self.T_max):
-            week_detections = []
+
+        # 创建一组有代表性的状态，用于计算
+        sample_states = self.female_data[['孕妇BMI', 'Delta_GC', '21号染色体的Z值']].values
+
+        print("开始求解动态规划模型...")
+        # 从最后一天开始反向循环
+        for t in range(self.T_max, self.T_min - 1, -1):
             for state_idx in range(len(sample_states)):
-                if (t, state_idx) in optimal_policies:
-                    week_detections.append(optimal_policies[(t, state_idx)])
-            
-            if week_detections:
-                detection_rate = np.mean(week_detections)
-                detection_recommendations.append({
-                    'week': t,
-                    'detection_rate': detection_rate,
-                    'recommended_action': 'Detect' if detection_rate > 0.5 else 'Wait'
-                })
-        
-        return detection_recommendations, value_functions, optimal_policies
-    
+                for detections_done in range(self.max_detections + 1):
+                    state = np.append(sample_states[state_idx], t)
+
+                    # 终止条件：在最后一天，未来价值为0
+                    if t == self.T_max:
+                        value_functions[(t, state_idx, detections_done)] = 0
+                        optimal_policies[(t, state_idx, detections_done)] = 0 # 结束时不检测
+                        continue
+
+                    # --- 对于每个状态，比较采取不同行动的价值 ---
+                    # 价值(不检测)
+                    reward_wait = self.reward_function(state, 0, [0]*detections_done)
+                    future_value_wait = value_functions.get((t + 1, state_idx, detections_done), 0)
+                    value_wait = reward_wait + future_value_wait
+
+                    # 价值(检测)
+                    if detections_done < self.max_detections:
+                        reward_detect = self.reward_function(state, 1, [0]*detections_done)
+                        future_value_detect = value_functions.get((t + 1, state_idx, detections_done + 1), 0)
+                        value_detect = reward_detect + future_value_detect
+                    else:
+                        value_detect = -np.inf # 如果已达最大检测次数，则不能再检测
+
+                    # --- 做出最优决策 ---
+                    if value_detect > value_wait:
+                        value_functions[(t, state_idx, detections_done)] = value_detect
+                        optimal_policies[(t, state_idx, detections_done)] = 1 # 最优行动是检测
+                    else:
+                        value_functions[(t, state_idx, detections_done)] = value_wait
+                        optimal_policies[(t, state_idx, detections_done)] = 0 # 最优行动是不检测
+
+        print("求解完成。")
+        return value_functions, optimal_policies
+
+    def analyze_optimal_detection_strategy(self, optimal_policies):
+        """根据求解得到的最优策略，进行分析。"""
+        detection_recommendations = []
+        # 分析在平均状态下，且尚未进行任何检测时的策略
+        avg_state_idx = len(self.female_data) // 2
+
+        for t in range(self.T_min, self.T_max):
+            action = optimal_policies.get((t, avg_state_idx, 0), 0) # 假设从0次检测开始
+            detection_recommendations.append({
+                'week': t,
+                'recommended_action': 'Detect' if action == 1 else 'Wait'
+            })
+        return detection_recommendations
+
     def abnormality_classification(self):
         """
-        Female fetal abnormality classification based on multiple factors
+        训练一个分类模型，用来识别哪些因素对判断胎儿异常最重要。
+        这里使用随机森林模型，因为它能很好地处理复杂的非线性关系，并给出特征重要性。
         """
-        from sklearn.ensemble import RandomForestClassifier
-        from sklearn.metrics import classification_report, roc_auc_score
-        from sklearn.model_selection import train_test_split
-        
-        # Features for classification
-        features = ['孕妇BMI', 'GC含量', 'X染色体的Z值', '21号染色体的Z值', 
-                   '18号染色体的Z值', '13号染色体的Z值', 'gestational_week']
-        
+        features = ['孕妇BMI', 'GC含量', 'X染色体的Z值', '21号染色体的Z值', '18号染色体的Z值', '13号染色体的Z值', 'gestational_week']
         X = self.female_data[features]
-        y = self.female_data['is_abnormal']
-        
-        # Train-test split
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, 
-                                                          random_state=42, stratify=y)
-        
-        # Train Random Forest classifier
-        rf = RandomForestClassifier(n_estimators=100, random_state=42)
+        y = self.female_data['is_abnormal'] # 真实健康状况
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+
+        rf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
         rf.fit(X_train, y_train)
-        
-        # Predictions
-        y_pred = rf.predict(X_test)
+
         y_pred_proba = rf.predict_proba(X_test)[:, 1]
-        
-        # Evaluation
         auc = roc_auc_score(y_test, y_pred_proba)
-        
-        print("Classification Results:")
-        print(f"AUC Score: {auc:.4f}")
-        print(classification_report(y_test, y_pred))
-        
-        # Feature importance
-        feature_importance = pd.DataFrame({
-            'Feature': features,
-            'Importance': rf.feature_importances_
-        }).sort_values('Importance', ascending=False)
-        
-        return rf, feature_importance, auc
-    
+
+        print("\n分类模型性能:")
+        print(f"AUC 分数: {auc:.4f}")
+
+        feature_importance = pd.DataFrame({'Feature': features, 'Importance': rf.feature_importances_}).sort_values('Importance', ascending=False)
+
+        return feature_importance, auc
+
     def visualize_results(self, detection_recommendations, feature_importance):
-        """Create comprehensive visualizations for Problem 4"""
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        fig.suptitle('Problem 4: Dynamic Multi-stage Detection for Female Fetuses', fontsize=16)
-        
-        # Plot 1: Optimal detection strategy by week
-        ax1 = axes[0, 0]
+        """为问题四创建一套完整的可视化图表。"""
+        fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+        fig.suptitle('问题四：动态多阶段检测优化', fontsize=16)
+
+        # 图1: 最优检测策略
+        ax1 = axes[0]
         weeks = [rec['week'] for rec in detection_recommendations]
-        detection_rates = [rec['detection_rate'] for rec in detection_recommendations]
-        
-        bars = ax1.bar(weeks, detection_rates, color='lightcoral', alpha=0.7, edgecolor='black')
-        ax1.set_xlabel('Gestational Week')
-        ax1.set_ylabel('Detection Probability')
-        ax1.set_title('Optimal Detection Strategy by Week')
-        ax1.axhline(y=0.5, color='red', linestyle='--', label='Decision Threshold')
-        ax1.legend()
+        actions = [1 if rec['recommended_action'] == 'Detect' else 0 for rec in detection_recommendations]
+        ax1.step(weeks, actions, where='post', color='coral', linewidth=3)
+        ax1.set_xlabel('孕周')
+        ax1.set_ylabel('推荐行动 (1=检测, 0=等待)')
+        ax1.set_title('平均状态下的最优检测策略')
+        ax1.set_yticks([0, 1])
+        ax1.set_yticklabels(['Wait', 'Detect'])
         ax1.grid(True, alpha=0.3)
-        
-        # Add value labels on bars
-        for bar, rate in zip(bars, detection_rates):
-            height = bar.get_height()
-            ax1.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                    f'{rate:.2f}', ha='center', va='bottom')
-        
-        # Plot 2: Feature importance for abnormality detection
-        ax2 = axes[0, 1]
-        ax2.barh(feature_importance['Feature'], feature_importance['Importance'],
-                color='lightblue', alpha=0.7, edgecolor='black')
-        ax2.set_xlabel('Feature Importance')
-        ax2.set_title('Feature Importance for Abnormality Detection')
-        ax2.grid(True, alpha=0.3)
-        
-        # Plot 3: Chromosomal abnormality distribution
-        ax3 = axes[1, 0]
-        abnormality_types = ['Chr 21', 'Chr 18', 'Chr 13', 'Chr X']
-        abnormality_rates = [
-            self.female_data['chr21_abnormal'].mean(),
-            self.female_data['chr18_abnormal'].mean(),
-            self.female_data['chr13_abnormal'].mean(),
-            self.female_data['chrX_abnormal'].mean()
-        ]
-        
-        colors = ['red', 'orange', 'yellow', 'green']
-        ax3.pie(abnormality_rates, labels=abnormality_types, colors=colors, 
-                autopct='%1.1f%%', startangle=90)
-        ax3.set_title('Distribution of Chromosomal Abnormalities')
-        
-        # Plot 4: Detection timing vs BMI
-        ax4 = axes[1, 1]
-        bmi_groups = pd.cut(self.female_data['孕妇BMI'], bins=5, labels=['Very Low', 'Low', 'Medium', 'High', 'Very High'])
-        week_groups = pd.cut(self.female_data['gestational_week'], bins=4, labels=['12-16w', '17-21w', '22-25w', '26-28w'])
-        
-        crosstab = pd.crosstab(bmi_groups, week_groups, normalize='index')
-        im = ax4.imshow(crosstab.values, cmap='YlOrRd', aspect='auto')
-        ax4.set_xticks(range(len(crosstab.columns)))
-        ax4.set_xticklabels(crosstab.columns)
-        ax4.set_yticks(range(len(crosstab.index)))
-        ax4.set_yticklabels(crosstab.index)
-        ax4.set_xlabel('Gestational Week Groups')
-        ax4.set_ylabel('BMI Groups')
-        ax4.set_title('Detection Timing vs BMI Distribution')
-        
-        # Add colorbar
-        plt.colorbar(im, ax=ax4, shrink=0.6)
-        
-        plt.tight_layout()
-        plt.savefig('/home/tfisher/code/math/2025/c-problem/new-plan/problem4_analysis.png', 
-                    dpi=300, bbox_inches='tight')
+
+        # 图2: 异常检测的特征重要性
+        ax2 = axes[1]
+        ax2.barh(feature_importance['Feature'], feature_importance['Importance'], color='skyblue', edgecolor='black')
+        ax2.set_xlabel('特征重要性')
+        ax2.set_title('识别胎儿异常的特征重要性')
+        ax2.invert_yaxis()
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.savefig('new-plan/problem4_analysis.png', dpi=300)
         plt.show()
-    
+
     def run_analysis(self):
-        """Run complete Problem 4 analysis"""
-        print("=== Problem 4: Dynamic Multi-stage Detection for Female Fetuses ===")
-        print()
-        
-        # Step 1: Analyze optimal detection strategy
-        detection_recommendations, value_functions, optimal_policies = self.analyze_optimal_detection_strategy()
-        
-        print("Optimal Detection Strategy:")
-        print("="*50)
-        for rec in detection_recommendations[:10]:  # Show first 10 weeks
-            print(f"Week {rec['week']}: Detection Rate = {rec['detection_rate']:.3f} ({rec['recommended_action']})")
-        
-        # Step 2: Abnormality classification
-        classifier, feature_importance, auc = self.abnormality_classification()
-        
-        print(f"\nAbnormality Detection Performance:")
-        print(f"AUC Score: {auc:.4f}")
-        print("\nTop 5 Most Important Features:")
-        print(feature_importance.head())
-        
-        # Step 3: Policy analysis
-        optimal_weeks = []
-        for rec in detection_recommendations:
-            if rec['detection_rate'] > 0.5:
-                optimal_weeks.append(rec['week'])
-        
-        if optimal_weeks:
-            print(f"\nRecommended Detection Weeks: {optimal_weeks}")
-            print(f"Primary Detection Window: {min(optimal_weeks)}-{max(optimal_weeks)} weeks")
-        else:
-            print("\nNo strong detection recommendations found in current analysis")
-        
-        # Step 4: Risk-benefit analysis
-        total_detections = sum(1 for rec in detection_recommendations if rec['detection_rate'] > 0.5)
-        print(f"\nRisk-Benefit Analysis:")
-        print(f"Expected number of detections per patient: {total_detections/len(detection_recommendations)*len(detection_recommendations):.2f}")
-        print(f"Detection efficiency (abnormalities detected / total detections): {self.female_data['is_abnormal'].mean():.3f}")
-        
-        # Step 5: Visualization
+        """运行问题四的完整分析流程。"""
+        print("=== 问题四：动态多阶段检测优化分析开始 ===")
+
+        value_functions, optimal_policies = self.dynamic_programming_solver()
+        detection_recommendations = self.analyze_optimal_detection_strategy(optimal_policies)
+
+        print("\n最优检测策略 (平均状态):")
+        print(pd.DataFrame(detection_recommendations))
+
+        feature_importance, auc = self.abnormality_classification()
+        print("\n特征重要性排名:")
+        print(feature_importance)
+
         self.visualize_results(detection_recommendations, feature_importance)
-        
-        # Save results
-        results_df = pd.DataFrame(detection_recommendations)
-        results_df.to_csv('/home/tfisher/code/math/2025/c-problem/new-plan/problem4_results.csv', index=False)
-        
-        feature_importance.to_csv('/home/tfisher/code/math/2025/c-problem/new-plan/problem4_feature_importance.csv', index=False)
-        
-        return {
-            'detection_recommendations': detection_recommendations,
-            'feature_importance': feature_importance,
-            'auc_score': auc,
-            'optimal_weeks': optimal_weeks
-        }
+
+        # 保存结果
+        pd.DataFrame(detection_recommendations).to_csv('new-plan/problem4_results.csv', index=False)
+        feature_importance.to_csv('new-plan/problem4_feature_importance.csv', index=False)
+        print("\n分析结果已保存到 problem4_results.csv 和 problem4_feature_importance.csv")
 
 if __name__ == "__main__":
-    # Initialize and run Problem 4 analysis
     problem4 = Problem4_DynamicMultiStage()
-    results = problem4.run_analysis()
+    problem4.run_analysis()
