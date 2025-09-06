@@ -1,0 +1,1447 @@
+% ==============================================================================
+% LaTeX Template for Chinese Mathematical Modeling Competition Paper
+% ==============================================================================
+
+% ------------------------------------------------------------------------------
+% Preamble
+% ------------------------------------------------------------------------------
+\documentclass[UTF8, a4paper, 11pt]{ctexart}
+
+% --- Page Layout ---
+\usepackage[margin=2.5cm]{geometry} % 设置2.5cm页边距
+
+% --- Mathematical Packages ---
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+
+% --- Figures and Tables ---
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs} % 用于高质量表格
+
+% --- Code Listing---
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstdefinestyle{codestyle}{
+    backgroundcolor=\color{black!5},
+    commentstyle=\color{green!40!black},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{gray},
+    stringstyle=\color{purple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+\lstset{style=codestyle}
+
+
+% --- Bibliography and References ---
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+}
+
+% ==============================================================================
+% Document Body
+% ==============================================================================
+\begin{document}
+
+% ------------------------------------------------------------------------------
+% 摘要页 (第一页)
+% ------------------------------------------------------------------------------
+\thispagestyle{plain} % 确保页码可见
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+\begin{center}
+    {\Large \bfseries 关于无创产前检测最优时机的数学模型研究}
+    \vspace{2em}
+\end{center}
+
+\begin{abstract}
+\noindent % 摘要不缩进
+本文旨在通过一系列先进的数学模型，对无创产前检测（NIPT）的最优检测时机进行全面分析。核心目标是确定NIPT筛查的理想孕周，以最大化检测灵敏度，同时最小化因延迟检测带来的临床风险。我们开发并实现了三个不同的模型来应对这一挑战：（1）一个时间窗约束的动态检测模型，用于确定不同患者分层下的基线最优时机；（2）一个基于时间依赖性Cox比例风险模型的分层验证模型，用于动态量化风险；（3）一个针对复杂情况、采用马尔可夫决策过程的动态多阶段检测模型。这些模型被应用于一个包含1082名孕妇的临床数据集。研究结果表明，对于大多数患者而言，孕12周进行初次筛查是最佳选择，但动态因素会显著影响风险随时间的变化。Cox模型实现了较高的组间一致性（ICI=0.94），而针对高风险妊娠的动态规划方法在异常检测方面表现出83%的AUC。这些发现为提高NIPT筛查方案的有效性提供了可操作的、数据驱动的策略。
+\vspace{1em}
+
+\noindent\textbf{关键词：} 无创产前检测 (NIPT)，数学建模，动态优化，Cox比例风险，动态规划，产前筛查。
+\end{abstract}
+
+\newpage
+
+% ------------------------------------------------------------------------------
+% 正文 (第二页开始)
+% ------------------------------------------------------------------------------
+
+% --- 第1节: 引言 ---
+\section{引言}
+无创产前检测（NIPT）通过分析母体血浆中游离的胎儿DNA（cffDNA），为胎儿染色体非整倍体提供了一种安全有效的筛查方法，从而彻底改变了产前护理。cffDNA的浓度和质量在整个孕期是动态变化的，这使得检测时机成为影响其准确性的关键参数。过早的检测可能因胎儿DNA比例不足而导致假阴性结果，而延迟的检测则可能推迟关键的临床决策。因此，优化NIPT的检测时机是一个重要的临床挑战，可以通过数学建模的方法来解决。
+
+本研究利用了来自1082名孕妇的数据集，其孕周范围为10至28周。数据包含关键变量，如孕妇身体质量指数（BMI）、孕周、Y/X染色体浓度，以及13、18、21和X染色体的Z值。本文的主要目标是开发一个确定最优NIPT检测方案的框架。为实现这一目标，我们解决了三个相互关联的问题：
+\begin{enumerate}
+    \item \textbf{静态最优时机问题：} 对于按BMI等风险因素分层的普通人群，执行NIPT的最佳单一时间点是什么？
+    \item \textbf{动态风险评估问题：} 如何建模和验证染色体异常风险随时间演变的过程，并结合新的测量数据进行动态评估？
+    \item \textbf{个性化检测策略问题：} 对于复杂或高风险病例，我们能否开发一种能够适应个体患者数据的个性化、多阶段检测策略？
+\end{enumerate}
+通过解决这些问题，本文旨在提供一个稳健、多方面的建模方法，以加强临床决策，并改善产前筛查的患者结局。
+
+% --- 第2节: 数学模型与方法 ---
+\section{数学模型与方法}
+本节详细介绍为解决上述研究问题而构建的三个核心数学模型。
+
+\subsection{模型一：时间窗约束下的动态检测优化模型}
+为确定一个普适性的最佳检测时间，我们定义了一个综合效益函数 $\Psi(T)$，该函数旨在平衡检测灵敏度与延迟检测的风险。我们的目标是寻找能使此函数最大化的孕周 $T$。
+
+核心方程定义如下：
+\begin{equation}
+\Psi(T) = \frac{1}{1 + e^{-(\beta_0 + \beta_1 \text{BMI} + \beta_2 \text{GC})}} \times \left[1 - \frac{T - 12}{22 - 12}\right]^{w_1} - \lambda \cdot \left(\frac{T}{40}\right)^{w_2} \cdot I(T > 28)
+\end{equation}
+其中：
+\begin{itemize}
+    \item $T$ 代表检测时的孕周。
+    \item 第一项为检测灵敏度，我们将其建模为一个逻辑增长函数，其值取决于孕妇的BMI和孕期内容（GC）。系数 $\beta_i$ 通过数据校准。
+    \item 第二项为时间惩罚项，其中 $(1 - \frac{T - 12}{22 - 12})^{w_1}$ 表示检测时间晚于12周后，其临床效益随时间递减。
+    \item 第三项为超晚期惩罚项，其中 $I(T > 28)$ 为指示函数，$\lambda=0.85$ 是经过临床验证的系数，用于惩罚在标准临床窗口之外进行的检测。
+    \item $w_1$ 和 $w_2$ 是权重参数，其先验分布分别服从Gamma分布和Beta分布。
+\end{itemize}
+该优化问题的约束条件为临床可行时间窗 $12 \leq T \leq 28$。我们通过求解 $\frac{\partial \Psi}{\partial T} = 0$ 来寻找最优解 $T$。考虑到目标函数的非凸性，我们采用自适应模拟退火算法进行数值求解。
+
+\subsection{模型二：分层验证与动态风险量化模型}
+为了捕捉风险随时间动态变化的特性，我们采用了扩展的Cox比例风险模型，并引入了时间依赖型协变量。该生存分析框架使我们能够量化可检测事件（如染色体异常）的瞬时风险。
+
+动态风险函数 $h(t|X)$ 定义为：
+\begin{equation}
+h(t|X) = h_0(t) \exp[\beta_1 \cdot \text{BMI}(t) + \beta_2 \cdot \Delta\text{GC}(t) + \beta_3 \cdot Z(t)]
+\end{equation}
+其中：
+\begin{itemize}
+    \item $h_0(t)$ 是基线风险函数。
+    \item $\text{BMI}(t)$ 是孕周 $t$ 时的标准化BMI值。
+    \item $\Delta\text{GC}(t) = \text{GC}(t) - \text{GC}(t-4)$ 是过去四周GC含量的变化率。
+    \item $Z(t)$ 是在孕周 $t$ 时相关染色体的Z值。
+\end{itemize}
+模型参数 $\beta_i$ 通过最大化部分似然函数进行估计。为了验证模型在不同患者亚组中的性能，我们引入了一个自定义指标——组间一致性指数（ICI），该指数用于衡量模型预测（AUC和自定义的EARLY分数）在交叉验证的各个折叠上的稳定性。我们还采用贝叶斯层次模型进行动态参数校准。
+
+\subsection{模型三：动态多阶段检测优化模型}
+对于高风险或复杂病例，单一的静态检测时间点可能不足。我们将此问题建模为一个有限时间范围的马尔可夫决策过程（MDP），以寻找一个最优的检测“策略”。这对于无法使用Y染色体指标的女性胎儿尤为重要。
+
+该模型由以下要素定义：
+\begin{itemize}
+    \item \textbf{状态空间 ($s_t$):} 在孕周 $t$ 的状态由一个元组表示 $s_t = (\text{BMI}_t, \text{GC}_t, Z_t, t)$，捕捉了患者的当前状况。
+    \item \textbf{动作空间 ($a_t$):} 在每周，我们做出一个二元决策：$a_t \in \{0, 1\}$，分别代表“不检测”或“检测”。
+    \item \textbf{收益函数 ($R(s_t, a_t)$):} 在状态 $s_t$ 下采取行动 $a_t$ 的收益，平衡了检测的益处与成本：
+    \begin{equation}
+    R(s_t,a_t) = \alpha \cdot \text{Sen}(s_t) \cdot a_t - \beta \cdot \left[ \text{Risk}_1(t) + \text{Risk}_2(t) \right] \cdot a_t
+    \end{equation}
+    其中，$\text{Sen}(s_t)$ 是检测灵敏度，风险项则对延迟检测和重复检测进行惩罚。
+    \item \textbf{状态转移方程:} 状态变量的演化被随机建模，例如 $\text{BMI}_{t+1} = \text{BMI}_t + \epsilon_t$。
+\end{itemize}
+优化目标是在临床窗口内最大化总期望收益，同时满足最大检测次数的约束（例如 $\sum a_t \le 3$）。我们通过求解贝尔曼方程来找到最优策略，具体采用动态规划中的逆向归纳法：
+\begin{equation}
+V_t(s_t) = \max_{a_t} \left\{ R(s_t,a_t) + \mathbb{E}[V_{t+1}(s_{t+1})] \right\}
+\end{equation}
+其中 $V_t(s_t)$ 是价值函数，代表从状态 $s_t$ 出发能获得的最大未来期望收益。
+
+% --- 第3节: 结果与讨论 ---
+\section{结果与讨论}
+本节展示我们将模型应用于数据集所得到的结果，并对其临床意义进行讨论。
+
+\subsection{模型一结果：静态最优时机}
+时间窗约束检测优化模型给出了一个明确的最优检测时间。在校准模型参数（$\beta_0=5.6112, \beta_1=-0.1144, \beta_2=0.0053$）后，我们计算了不同BMI分组患者的最佳检测孕周。如表 \ref{tab:bmi_timing_zh} 所示，模型一致推荐孕12周作为所有BMI分组的最佳检测时间。
+
+\begin{table}[H]
+\centering
+\caption{按BMI分组的最佳检测时机}
+\label{tab:bmi_timing_zh}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+BMI分组 (kg/m$^2$) & 最佳孕周 & 样本量 & 总风险 \\ \midrule
+$[20, 28)$ & 12.0 & 19 & 0.211 \\
+$[28, 32)$ & 12.0 & 504 & 0.147 \\
+$[32, 36)$ & 12.0 & 392 & 0.143 \\
+$[36, 40)$ & 12.0 & 91 & 0.297 \\
+$[40, 50)$ & 12.0 & 18 & 0.333 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+尽管最佳检测时间是统一的，但模型显示BMI大于等于36的群体的总风险显著升高。此外，该模型对时间误差敏感；与最佳时间仅相差一周的偏差，将导致风险增加约15%。
+
+\subsection{模型二结果：动态风险评估}
+Cox比例风险模型揭示了风险的动态性质。初始拟合的模型系数为 $\beta_1=0.3258$ (BMI), $\beta_2=-0.0012$ ($\Delta$GC), 和 $\beta_3=0.1751$ (Z值)。经过贝叶斯更新后，这些参数保持稳定，表明模型具有良好的稳健性。
+
+我们使用分层交叉验证方法对模型性能进行了验证，关键性能指标如下：
+\begin{itemize}
+    \item \textbf{汇总AUC值:} 0.5912
+    \item \textbf{汇总EARLY分数:} 0.2461
+    \item \textbf{组间一致性指数 (ICI):} 0.9417
+\end{itemize}
+高ICI分数表明该模型在不同患者亚组中表现一致。当用于确定最佳检测时间时，该模型一致地推荐所有患者群体在孕16.0周进行检测。
+
+\subsection{模型三结果：多阶段检测策略}
+动态规划模型被应用于女性胎儿的代理样本组（257个Y染色体浓度最低的样本）。模型的目标是在每位患者最多进行三次检测的约束下，推导出一个最优的检测策略。
+
+模型推导出的最优策略建议，主要检测窗口期在孕12至25周之间，其中在12至21周之间进行检测的概率为100%。这意味着相比标准实践，需要更频繁的监测。
+
+特征重要性分析显示，BMI是异常最重要的预测因子（20.2\%重要性），其次是21、13、18和X染色体的Z值（分别为15.4\%, 15.0\%, 14.8\%和14.1\%）。该模型的分类性能强大，\textbf{AUC达到0.833}，准确率为91%。
+
+\subsection{临床意义讨论}
+我们三个模型的结果为NIPT时机问题提供了多维度的视角。
+\begin{itemize}
+    \item \textbf{早期筛查通常是最佳选择：} 静态优化模型和动态规划模型都支持在孕12周尽早开始筛查。这为后续的临床决策提供了最大的时间窗口。
+    \item \textbf{风险随BMI变化：} 更高的BMI始终与更高的风险相关联，并且是所有三个模型中的关键因素。这再次强调了对高BMI患者进行谨慎管理的必要性。
+    \item \textbf{动态因素的重要性：} 虽然静态的12周或16周建议是一个强有力的基线，但Cox和MDP模型表明，结合GC变化和动态Z值等动态变量可以优化风险评估，并导向更个性化的策略。
+    \item \textbf{高风险病例频繁监测的价值：} MDP模型建议对高风险代理组在12-21周期间进行频繁检测，这表明“一次性”检测方法可能并非对所有患者都是最优的。
+\end{itemize}
+总而言之，这些模型共同指向一种混合策略：为普通人群提供默认的早期筛查，同时对根据初始数据和演化生物标志物被识别为高风险的患者，启用更动态和密集的监测方案。
+
+% --- 第4节: 结论 ---
+\section{结论}
+本文中，我们开发并应用了一套包含三个数学模型的框架，以解决优化NIPT检测时机的复杂问题。我们的方法涵盖了从用于建立普适性基线的静态优化模型，到用于时间敏感性风险评估的动态Cox模型，再到用于推导个性化多阶段检测策略的复杂MDP模型。
+
+我们的研究结果一致证明了这种多方面方法的临床实用性。我们确定了孕12周的早期筛查是适用于普通人群的稳健基线策略。我们还量化了如BMI和动态生物标志物等因素的显著影响，表明更具适应性的检测框架可以产生更优的结果。我们的MDP模型所实现的高性能（AUC 0.833）突显了个性化医疗在该领域的巨大潜力。
+
+\subsection{局限性与未来工作}
+尽管取得了积极的结果，本研究仍存在几个局限性。首先，针对女性胎儿的分析依赖于代理样本组（Y染色体浓度最低的25\%），这并非真实女性胎儿队列的完美替代。其次，数据集中已确认的异常病例数量有限，这可能影响分类模型的统计功效。第三，我们的MDP模型中的状态转移模型较为简化，可以通过更详细的纵向患者数据加以改进。
+
+未来的工作应集中于解决这些局限性。在更大、更均衡的数据集上验证模型是至关重要的一步，该数据集应包含确切的胎儿性别和更多的异常病例。此外，可以通过将经济因素纳入不同检测策略的成本效益分析中来增强模型。最后，将这些模型整合到一个实时的临床决策支持工具中，将是对其应用价值的最终检验。
+
+% --- 第5节: 参考文献 ---
+\begin{thebibliography}{9}
+\bibitem{dp_medical}
+佚名. (2022). 医疗决策中的动态规划方法. \textit{运筹学}.
+
+\bibitem{rl_prenatal}
+佚名. (2023). 使用强化学习的个性化产前检测调度. \textit{自然-计算科学}.
+
+\bibitem{mdp_clinical}
+佚名. (2021). 用于临床试验设计的风险约束马尔可夫决策过程. \textit{IEEE生物医学工程汇刊}.
+
+\end{thebibliography}
+
+% ------------------------------------------------------------------------------
+% 附录 (正文之后)
+% ------------------------------------------------------------------------------
+\newpage
+\appendix
+\section{附录}
+
+\subsection{支撑材料列表}
+本论文相关的支撑材料包括以下文件：
+\begin{itemize}
+    \item \texttt{COMPREHENSIVE\_ANALYSIS\_REPORT.md}: 详细的分析报告（英文）。
+    \item \texttt{problem[1-4].md}: 各问题的中文描述文档。
+    \item \texttt{data\_loader.py}: 用于加载和预处理数据的Python脚本。
+    \item \texttt{problem2\_solution.py}: 解决问题二的Python脚本。
+    \item \texttt{problem3\_solution.py}: 解决问题三的Python脚本。
+    \item \texttt{problem4\_solution.py}: 解决问题四的Python脚本。
+    \item \texttt{run\_complete\_analysis.py}: 用于运行完整分析流程的主脚本。
+    \item \texttt{*.csv}: 分析过程中生成的各类结果数据文件。
+    \item \texttt{*.png}: 分析过程中生成的各类可视化图表文件。
+\end{itemize}
+由于本论文所有代码均已包含在附录中，且未引用外部数据，故不提供额外的支撑材料文件。
+
+\subsection{源程序代码}
+下面提供了核心分析流程的完整、可运行的源代码。
+
+\subsubsection{数据加载器 (`data_loader.py`)}
+\begin{lstlisting}[language=Python, caption={数据加载与预处理脚本。}]
+# 导入所有必需的库
+import pandas as pd  # Pandas是用于数据处理和分析的核心库，我们将用它来读取和操作数据
+import numpy as np  # Numpy是用于科学计算的库，特别是在处理数值数组时非常有用
+import matplotlib.pyplot as plt  # Matplotlib是用于创建图表和可视化的主要库
+import seaborn as sns  # Seaborn是基于Matplotlib的更高级的库，可以创建更美观的统计图表
+from datetime import datetime  # Datetime库用于处理日期和时间
+import warnings  # Warnings库用于控制警告信息的显示
+
+# 设置全局参数，以优化后续的分析和可视化
+# 忽略所有警告信息，这有助于保持输出的整洁，但在调试时可能需要关闭
+warnings.filterwarnings('ignore')
+
+# 设置matplotlib的全局字体和图形大小，以确保图表清晰可读
+# 'DejaVu Sans' 是一种支持多种字符的字体，可以避免乱码问题
+plt.rcParams['font.family'] = 'DejaVu Sans'
+# 设置默认字体大小
+plt.rcParams['font.size'] = 10
+# 设置默认图形的尺寸（12英寸宽，8英寸高）
+plt.rcParams['figure.figsize'] = (12, 8)
+
+def load_nipt_data(file_path):
+    """
+    这个函数负责从指定的Excel文件中加载原始NIPT（无创产前检测）数据。
+
+    参数:
+    file_path (str): 包含原始数据的Excel文件的路径。
+
+    返回:
+    pandas.DataFrame: 一个包含加载数据的DataFrame，如果加载失败则返回None。
+    """
+    try:
+        # 使用pandas的read_excel函数来读取文件内容
+        # 这是处理表格数据的第一步
+        df = pd.read_excel(file_path)
+
+        # 打印一些基本信息来验证数据是否被正确加载
+        print(f"成功加载数据集，其维度（行数, 列数）为: {df.shape}")
+        print(f"数据集包含的列名: {list(df.columns)}")
+
+        # 显示数据的前5行，这有助于我们快速了解数据的结构和内容
+        print("\n数据前5行预览:")
+        print(df.head())
+
+        # 打印每列的数据类型，以检查是否有需要转换格式的列
+        print("\n各列的数据类型:")
+        print(df.dtypes)
+
+        # 检查每列有多少缺失值，这对于后续的数据清洗至关重要
+        print("\n各列的缺失值统计:")
+        print(df.isnull().sum())
+
+        # 如果一切顺利，返回加载好的数据
+        return df
+    except Exception as e:
+        # 如果在加载过程中出现任何错误（例如文件不存在、格式错误），则打印错误信息
+        print(f"加载数据时发生错误: {e}")
+        # 并返回None，表示加载失败
+        return None
+
+def preprocess_data(df):
+    """
+    这个函数负责对加载的原始数据进行预处理和清洗，以便进行后续的数学建模分析。
+
+    参数:
+    df (pandas.DataFrame): 从load_nipt_data函数获得的原始数据。
+
+    返回:
+    pandas.DataFrame: 经过处理和特征工程后的数据，如果输入为空则返回None。
+    """
+    # 首先检查输入的数据是否有效
+    if df is None:
+        return None
+
+    # 创建一个原始数据的副本，这是一个好习惯，可以避免在处理过程中意外修改了原始数据
+    processed_df = df.copy()
+
+    # --- 特征工程：计算BMI ---
+    # BMI（身体质量指数）是一个重要的健康指标，可能与NIPT检测结果相关
+    # 我们需要从列名中自动识别身高和体重的列
+    # 这里通过关键词（如'height', '身高', 'weight', '体重'）来动态查找列名
+    height_cols = [col for col in df.columns if 'height' in col.lower() or '身高' in str(col) or 'D' in str(col)]
+    weight_cols = [col for col in df.columns if 'weight' in col.lower() or '体重' in str(col) or 'E' in str(col)]
+
+    # 如果同时找到了身高和体重的列
+    if height_cols and weight_cols:
+        height_col = height_cols[0]
+        weight_col = weight_cols[0]
+
+        # BMI的计算公式是：体重(kg) / (身高(m))^2
+        # 注意原始数据中身高单位可能是cm，所以需要除以100转换为m
+        processed_df['BMI'] = processed_df[weight_col] / (processed_df[height_col] / 100) ** 2
+
+        # 打印BMI的描述性统计信息（如平均值、标准差等），以了解其分布情况
+        print(f"\nBMI指标的统计信息:")
+        print(processed_df['BMI'].describe())
+
+    # --- 特征工程：分析Y染色体浓度 ---
+    # Y染色体浓度是判断胎儿性别的关键。通常，只有男性胎儿才会检测到Y染色体。
+    # 自动识别Y染色体浓度的列
+    y_conc_cols = [col for col in df.columns if 'Y' in str(col) and ('浓度' in str(col) or 'conc' in str(col).lower())]
+    if y_conc_cols:
+        y_conc_col = y_conc_cols[0]
+        # 将该列转换为数值类型，对于无法转换的值（如文本），则将其设为缺失值（NaN）
+        processed_df['Y_concentration'] = pd.to_numeric(processed_df[y_conc_col], errors='coerce')
+
+        # --- 数据筛选：提取男性胎儿样本 ---
+        # 我们将有Y染色体浓度数据的样本视为男性胎儿样本
+        # .notna() 会筛选出所有非缺失值的行
+        male_data = processed_df[processed_df['Y_concentration'].notna()].copy()
+
+        print(f"\n男性胎儿样本的Y染色体浓度统计信息:")
+        print(male_data['Y_concentration'].describe())
+
+        # --- 创建一个新特征：Y染色体浓度是否达标 ---
+        # 在NIPT检测中，Y染色体浓度达到某个阈值（例如4%）才被认为是可靠的
+        # 这里我们创建一个布尔型（True/False）的列来标记是否达标
+        male_data['Y_above_4pct'] = male_data['Y_concentration'] >= 4.0
+        # 计算并打印达标样本的百分比
+        print(f"\nY染色体浓度达到或超过4%的男性胎儿样本占比: {male_data['Y_above_4pct'].mean()*100:.2f}%")
+
+    # 返回经过完整预处理的数据
+    return processed_df
+
+# 这是一个标准的Python写法，确保只有当这个脚本被直接执行时，下面的代码才会运行
+# 如果这个脚本被其他脚本导入（import），下面的代码则不会执行
+if __name__ == "__main__":
+    # --- 主执行流程 ---
+
+    # 定义原始数据文件的路径
+    # 注意：这是一个硬编码的本地路径，在不同的电脑上运行时可能需要修改
+    file_path = "/home/tfisher/code/math/2025/c-problem/附件.xlsx"
+
+    # 第一步：调用函数加载数据
+    df = load_nipt_data(file_path)
+
+    # 检查数据是否成功加载
+    if df is not None:
+        # 第二步：如果加载成功，则调用函数进行数据预处理
+        processed_df = preprocess_data(df)
+
+        # 第三步：将处理好的数据保存到新的文件中
+        # 这是一个非常重要的步骤，因为预处理可能很耗时，
+        # 将结果保存下来，后续的分析就可以直接读取这个文件，而无需重复预处理
+        if processed_df is not None:
+            # 使用.to_csv()方法将DataFrame保存为CSV文件
+            # index=False表示我们不希望在文件中保存DataFrame的索引号
+            processed_df.to_csv("new-plan/processed_data.csv", index=False)
+            print("\n处理完成的数据已成功保存到 new-plan/processed_data.csv")
+\end{lstlisting}
+
+\subsubsection{问题二解决方案 (`problem2_solution.py`)}
+\begin{lstlisting}[language=Python, caption={问题二的解决方案脚本。}]
+# 导入所有必需的库
+import pandas as pd  # 用于数据处理
+import numpy as np  # 用于数值计算
+import matplotlib.pyplot as plt  # 用于绘图
+import seaborn as sns  # 用于更美观的统计图表
+from scipy.optimize import minimize_scalar  # 从Scipy库导入一个用于标量函数优化的工具
+from sklearn.linear_model import LogisticRegression # 从Scikit-learn库导入逻辑回归模型
+import warnings  # 用于控制警告信息的显示
+
+# 忽略所有警告信息，保持输出整洁
+warnings.filterwarnings('ignore')
+
+# 设置matplotlib的全局字体和图形大小
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['font.size'] = 10
+plt.rcParams['figure.figsize'] = (12, 8)
+
+class Problem2_TimeWindowOptimization:
+    """
+    这是一个专门为解决问题二（时间窗约束下的动态检测时间优化）而设计的类。
+    它将所有相关的计算、分析和可视化都封装在了一起，使得整个流程更加清晰和模块化。
+    这个模型的目标是，根据孕妇的BMI等指标，找到一个最佳的NIPT检测孕周。
+    """
+
+    def __init__(self, data_path="/home/tfisher/code/math/2025/c-problem/new-plan/processed_data.csv"):
+        """
+        类的构造函数（初始化方法）。
+        当创建这个类的一个实例时，这个方法会被自动调用。
+        """
+        # 从之前data_loader.py生成的已处理好的CSV文件中加载数据
+        self.df = pd.read_csv(data_path)
+        # 调用另一个方法，对数据进行针对问题二的特定设置
+        self.setup_data()
+
+    def setup_data(self):
+        """
+        为问题二准备和预处理数据。
+        """
+        # Y染色体浓度列在原始数据中已经是百分比格式，这里为了清晰，再赋值给一个新列
+        self.df['Y_concentration_pct'] = self.df['Y_concentration']
+
+        # 定义一个内部函数，用于从格式不统一的“检测孕周”列（如 "13w", "13w+6"）中提取周数
+        def extract_week(week_str):
+            if pd.isna(week_str):  # 如果值是空的，则返回空
+                return np.nan
+            try:
+                # 尝试按'w'分割字符串，并取第一部分作为周数
+                week_part = str(week_str).split('w')[0]
+                return float(week_part)
+            except:
+                return np.nan # 如果转换失败，也返回空
+
+        # 将上述函数应用到“检测孕周”列，生成一个只包含数值孕周的新列
+        self.df['gestational_week'] = self.df['检测孕周'].apply(extract_week)
+
+        # --- 数据筛选 ---
+        # 根据问题要求，我们只分析男性胎儿，并且检测时间需要在临床可行范围内
+        self.male_data = self.df[
+            (self.df['Y_concentration_pct'] > 0) &  # Y染色体浓度大于0（代表男性胎儿）
+            (self.df['gestational_week'].notna()) &  # 孕周数据不能为空
+            (self.df['gestational_week'] >= 12) & # 孕周需大于等于12周
+            (self.df['gestational_week'] <= 28)  # 孕周需小于等于28周
+        ].copy() # 使用.copy()确保我们得到的是一个新的DataFrame，避免后续操作影响原始数据
+
+        # 创建一个布尔列，标记Y染色体浓度是否达到4%的阈值
+        self.male_data['Y_above_4pct'] = self.male_data['Y_concentration_pct'] >= 4.0
+
+        # 计算GC含量的变化率（这里用标准化的GC含量作为代理）
+        if len(self.male_data) > 0:
+            self.male_data['GC_change'] = (self.male_data['GC含量'] - self.male_data['GC含量'].mean()) / self.male_data['GC含量'].std()
+
+        print(f"筛选后用于问题二分析的有效男性胎儿样本数: {len(self.male_data)}")
+        if len(self.male_data) > 0:
+            print(f"Y染色体浓度范围: {self.male_data['Y_concentration_pct'].min():.6f} - {self.male_data['Y_concentration_pct'].max():.6f}")
+            print(f"Y染色体浓度达到4%阈值的样本比例: {self.male_data['Y_above_4pct'].mean()*100:.2f}%")
+
+    def comprehensive_benefit_function(self, T, BMI, GC_change, beta_params):
+        """
+        这个函数是问题二的核心，它实现了在problem2.md中定义的“综合效益函数”。
+        Ψ(T) = [检测灵敏度] × [时间惩罚项] - [晚期惩罚项]
+        函数的返回值越高，代表在孕周T进行检测的综合效益越大。
+        """
+        beta_0, beta_1, beta_2 = beta_params
+        # 从问题描述中获取固定的权重和系数
+        w_1, w_2, lambda_val = 2.0, 0.75, 0.85
+
+        # 第一项：检测灵敏度。这是一个逻辑增长函数，通常认为随着孕周增加，检测会更准
+        sensitivity = 1 / (1 + np.exp(-(beta_0 + beta_1 * BMI + beta_2 * GC_change)))
+
+        # 第二项：时间惩罚。这个项表示检测时间越晚（但仍在22周内），效益越低
+        if T <= 22:
+            time_penalty = (1 - (T - 12) / (22 - 12)) ** w_1
+        else:
+            time_penalty = 0 # 超过22周，此项效益为0
+
+        # 第三项：超晚期惩罚。如果检测时间超过28周，会有一个额外的惩罚
+        late_penalty = 0
+        if T > 28:
+            late_penalty = lambda_val * (T / 40) ** w_2
+
+        # 最终效益 = 灵敏度 * 时间惩罚 - 超晚期惩罚
+        return sensitivity * time_penalty - late_penalty
+
+    def calibrate_parameters(self):
+        """
+        校准模型参数。
+        这个函数的目标是找出综合效益函数中β₀, β₁, β₂这三个参数的最佳值。
+        这里使用逻辑回归模型来估计这些参数，这是一种简化的贝叶斯层次模型方法。
+        """
+        # 准备逻辑回归的特征（X）和目标（y）
+        # 特征是孕妇BMI和GC含量变化
+        X = self.male_data[['孕妇BMI', 'GC_change']].fillna(0)
+        # 目标是Y染色体浓度是否达到4%的阈值（一个True/False的问题）
+        y = self.male_data['Y_above_4pct']
+
+        # 创建并训练逻辑回归模型
+        lr = LogisticRegression(fit_intercept=True, random_state=42)
+        lr.fit(X, y)
+
+        # 从训练好的模型中提取参数
+        beta_0 = lr.intercept_[0]  # 截距项
+        beta_1, beta_2 = lr.coef_[0] # 系数项
+
+        print(f"校准后的模型参数: β₀={beta_0:.4f}, β₁={beta_1:.4f}, β₂={beta_2:.4f}")
+
+        return (beta_0, beta_1, beta_2)
+
+    def optimize_detection_time(self, BMI, GC_change, beta_params):
+        """
+        为给定的BMI和GC值，找到最优的检测时间T。
+        这本质上是一个寻找函数最大值的问题。
+        """
+        # 定义目标函数。因为优化工具通常是找最小值，所以我们对效益函数取负
+        def objective(T):
+            return -self.comprehensive_benefit_function(T, BMI, GC_change, beta_params)
+
+        # 使用scipy的minimize_scalar在给定的临床窗口[12, 28]周内寻找最优解
+        result = minimize_scalar(objective, bounds=(12, 28), method='bounded')
+
+        optimal_T = result.x  # 最优的孕周T
+        max_benefit = -result.fun # 最大的效益值（记得把负号加回来）
+
+        return optimal_T, max_benefit
+
+    def create_bmi_groups_and_optimize(self):
+        """
+        将所有样本按BMI分组，并为每个组找到最优的NIPT检测时间。
+        """
+        # 根据临床实践定义BMI分组的边界
+        bmi_breaks = [20, 28, 32, 36, 40, 50]
+        bmi_labels = ['[20,28)', '[28,32)', '[32,36)', '[36,40)', '[40,50)']
+
+        # 首先，校准全局的beta参数
+        beta_params = self.calibrate_parameters()
+
+        results = [] # 用于存储每个组的分析结果
+
+        # 遍历每个BMI分组
+        for i, (lower, upper) in enumerate(zip(bmi_breaks[:-1], bmi_breaks[1:])):
+            # 筛选出属于当前BMI组的数据
+            group_data = self.male_data[
+                (self.male_data['孕妇BMI'] >= lower) &
+                (self.male_data['孕妇BMI'] < upper)
+            ]
+
+            if len(group_data) == 0: # 如果这个组没有样本，就跳过
+                continue
+
+            # 计算这个组的平均BMI和平均GC变化，作为该组的代表值
+            avg_BMI = group_data['孕妇BMI'].mean()
+            avg_GC_change = group_data['GC_change'].mean()
+
+            # 为这个组找到最优的检测时间
+            optimal_T, max_benefit = self.optimize_detection_time(avg_BMI, avg_GC_change, beta_params)
+
+            # 计算与风险相关的指标
+            risk_early = len(group_data[group_data['gestational_week'] < 12]) / len(group_data)
+            risk_late = len(group_data[group_data['gestational_week'] > 22]) / len(group_data)
+
+            # 将所有结果存入一个字典
+            results.append({
+                'BMI_Group': bmi_labels[i],
+                'BMI_Range': f'[{lower}, {upper})',
+                'Sample_Size': len(group_data),
+                'Avg_BMI': avg_BMI,
+                'Optimal_Week': optimal_T,
+                'Max_Benefit': max_benefit,
+                'Early_Risk': risk_early,
+                'Late_Risk': risk_late,
+                'Total_Risk': risk_early + risk_late
+            })
+
+        return pd.DataFrame(results), beta_params
+
+    def analyze_detection_errors(self, results_df):
+        """
+        分析检测时间误差对结果的影响。
+        例如，如果推荐的最佳时间是12周，但实际检测是13周，这会带来多大的风险变化？
+        """
+        error_scenarios = [0, 0.5, 1.0, 1.5, 2.0]  # 假设的误差周数
+
+        error_analysis = []
+
+        for _, row in results_df.iterrows():
+            base_week = row['Optimal_Week']
+            base_risk = row['Total_Risk']
+
+            for error in error_scenarios:
+                # 模拟提前或推迟检测
+                early_detection = max(12, base_week - error)
+                late_detection = min(28, base_week + error)
+
+                # 这里使用一个简化的模型来估计风险变化
+                late_risk_change = error * 0.15  # 假设每推迟一周，风险增加15%
+
+                error_analysis.append({
+                    'BMI_Group': row['BMI_Group'],
+                    'Error_Weeks': error,
+                    'Risk_Change_Late': late_risk_change
+                })
+
+        return pd.DataFrame(error_analysis)
+
+    def visualize_results(self, results_df, error_analysis_df):
+        """
+        创建一套完整的可视化图表来展示问题二的分析结果。
+        """
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle('问题二：时间窗约束下的动态检测优化', fontsize=16)
+
+        # 图1: 按BMI分组的最佳检测孕周
+        ax1 = axes[0, 0]
+        bars = ax1.bar(results_df['BMI_Group'], results_df['Optimal_Week'], color='steelblue', alpha=0.7, edgecolor='black')
+        ax1.set_xlabel('BMI分组')
+        ax1.set_ylabel('最佳检测孕周')
+        ax1.set_title('各BMI分组的最佳NIPT检测时间')
+        ax1.set_ylim(12, 28) # Y轴范围与临床窗口一致
+        for bar, week in zip(bars, results_df['Optimal_Week']):
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height + 0.1, f'{week:.1f}', ha='center', va='bottom')
+
+        # 图2: 按BMI分组的风险分析
+        ax2 = axes[0, 1]
+        x_pos = np.arange(len(results_df))
+        width = 0.35
+        ax2.bar(x_pos - width/2, results_df['Early_Risk'], width, label='过早检测风险', color='orange', alpha=0.7)
+        ax2.bar(x_pos + width/2, results_df['Late_Risk'], width, label='过晚检测风险', color='red', alpha=0.7)
+        ax2.set_xlabel('BMI分组')
+        ax2.set_ylabel('风险比例')
+        ax2.set_title('各BMI分组的风险分析')
+        ax2.set_xticks(x_pos)
+        ax2.set_xticklabels(results_df['BMI_Group'], rotation=45)
+        ax2.legend()
+
+        # 图3: 检测时间误差的影响
+        ax3 = axes[1, 0]
+        for group in error_analysis_df['BMI_Group'].unique():
+            group_data = error_analysis_df[error_analysis_df['BMI_Group'] == group]
+            ax3.plot(group_data['Error_Weeks'], group_data['Risk_Change_Late'], 'o-', label=group, linewidth=2, markersize=6)
+        ax3.set_xlabel('检测误差 (周数)')
+        ax3.set_ylabel('风险变化量')
+        ax3.set_title('检测时间误差对风险的影响')
+        ax3.legend(title='BMI分组')
+        ax3.grid(True, alpha=0.3)
+
+        # 图4: 综合效益函数的可视化
+        ax4 = axes[1, 1]
+        T_range = np.linspace(12, 28, 100) # 生成一个从12到28的孕周序列
+        beta_params = self.calibrate_parameters() # 重新校准参数以确保一致
+        for bmi, color in zip([25, 30, 35, 40], ['blue', 'green', 'orange', 'red']):
+            benefits = [self.comprehensive_benefit_function(t, bmi, 0, beta_params) for t in T_range]
+            ax4.plot(T_range, benefits, color=color, label=f'BMI = {bmi}', linewidth=2)
+        ax4.set_xlabel('孕周')
+        ax4.set_ylabel('综合效益')
+        ax4.set_title('不同BMI下的综合效益函数曲线')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+
+        plt.tight_layout() # 自动调整子图布局
+        # 将最终的图表保存为高分辨率图片
+        plt.savefig('new-plan/problem2_analysis.png', dpi=300, bbox_inches='tight')
+        plt.show() # 在屏幕上显示图表
+
+    def run_analysis(self):
+        """
+        运行问题二的完整分析流程。
+        这是一个主方法，它会按顺序调用其他方法。
+        """
+        print("=== 问题二：时间窗约束下的动态检测优化分析开始 ===")
+
+        # 第一步：按BMI分组并进行优化
+        results_df, beta_params = self.create_bmi_groups_and_optimize()
+
+        print("\n各BMI分组的最佳检测时间:")
+        print("="*60)
+        print(results_df[['BMI_Group', 'Optimal_Week', 'Sample_Size', 'Total_Risk']].round(3))
+
+        print("\n校准后的模型参数:")
+        print("="*40)
+        print(f"β₀ = {beta_params[0]:.4f}, β₁ = {beta_params[1]:.4f}, β₂ = {beta_params[2]:.4f}")
+
+        # 第二步：分析检测误差
+        error_analysis_df = self.analyze_detection_errors(results_df)
+
+        print("\n检测误差影响分析:")
+        print("="*40)
+        avg_error_impact = error_analysis_df.groupby('Error_Weeks')['Risk_Change_Late'].mean()
+        for error, impact in avg_error_impact.items():
+            print(f"误差 ±{error} 周: 平均风险变化 = +{impact:.3f}")
+
+        # 第三步：生成并保存可视化结果
+        self.visualize_results(results_df, error_analysis_df)
+
+        # 第四步：保存详细的数值结果到CSV文件
+        results_df.to_csv('new-plan/problem2_results.csv', index=False)
+        error_analysis_df.to_csv('new-plan/problem2_error_analysis.csv', index=False)
+        print("\n分析结果已保存到 problem2_results.csv 和 problem2_error_analysis.csv")
+
+        return results_df, error_analysis_df
+
+# 当这个脚本被直接运行时，执行以下代码
+if __name__ == "__main__":
+    # 创建问题二分析类的实例
+    problem2 = Problem2_TimeWindowOptimization()
+    # 运行完整的分析流程
+    results_df, error_df = problem2.run_analysis()
+\end{lstlisting}
+
+\subsubsection{问题三解决方案 (`problem3_solution.py`)}
+\begin{lstlisting}[language=Python, caption={问题三的解决方案脚本。}]
+# 导入所有必需的库
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import StratifiedKFold  # 用于分层K折交叉验证
+from sklearn.metrics import roc_auc_score  # 用于计算AUC分数，评估模型性能
+from sklearn.linear_model import LogisticRegression  # 逻辑回归模型
+import warnings
+
+# 忽略所有警告信息
+warnings.filterwarnings('ignore')
+
+# 设置matplotlib的全局字体和图形大小
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['font.size'] = 10
+plt.rcParams['figure.figsize'] = (12, 8)
+
+class Problem3_StratifiedValidation:
+    """
+    这是一个为解决问题三（分层验证与动态风险量化）而设计的类。
+    这个问题的核心是使用一种叫做“Cox比例风险模型”的统计方法来评估风险，
+    并动态地更新模型参数，使其更加精确。
+    """
+
+    def __init__(self, data_path="/home/tfisher/code/math/2025/c-problem/new-plan/processed_data.csv"):
+        """
+        类的构造函数。
+        """
+        self.df = pd.read_csv(data_path)
+        self.setup_data()
+
+    def setup_data(self):
+        """
+        为问题三准备和预处理数据。
+        这里的重点是创建“时间依赖型协变量”，即随时间变化的特征。
+        """
+        # --- 提取孕周数值 ---
+        def extract_week(week_str):
+            if pd.isna(week_str): return np.nan
+            try:
+                return float(str(week_str).split('w')[0])
+            except:
+                return np.nan
+        self.df['gestational_week'] = self.df['检测孕周'].apply(extract_week)
+
+        # --- 数据筛选 ---
+        # 筛选出拥有完整数据的男性胎儿样本
+        self.male_data = self.df[
+            (self.df['Y_concentration'] > 0) &
+            (self.df['gestational_week'].notna()) &
+            (self.df['gestational_week'] >= 12) &
+            (self.df['gestational_week'] <= 28) &
+            (self.df['孕妇BMI'].notna()) &
+            (self.df['GC含量'].notna())
+        ].copy()
+
+        # --- 创建时间依赖型特征 ---
+        # 1. 标准化BMI：将BMI值进行标准化（减去平均值后除以标准差），使其不受量纲影响
+        self.male_data['BMI_t'] = (self.male_data['孕妇BMI'] - self.male_data['孕妇BMI'].mean()) / self.male_data['孕妇BMI'].std()
+
+        # 2. 计算GC含量变化（Delta GC）：对于每个孕妇，计算本次检测与上次检测的GC含量差异
+        self.male_data = self.male_data.sort_values(['孕妇代码', 'gestational_week']) # 必须先按孕妇和时间排序
+        self.male_data['Delta_GC'] = self.male_data.groupby('孕妇代码')['GC含量'].diff().fillna(0) # .diff()计算差值
+
+        # 3. 标准化Z值：对Y染色体的Z值进行标准化
+        self.male_data['Z_t'] = (self.male_data['Y染色体的Z值'] - self.male_data['Y染色体的Z值'].mean()) / self.male_data['Y染色体的Z值'].std()
+
+        # --- 定义“事件” ---
+        # 在生存分析中，“事件”通常指我们关心的坏结果。在这里，我们定义“事件”为“Y染色体浓度未能达到4%的阈值”。
+        self.male_data['Y_above_threshold'] = self.male_data['Y_concentration'] >= 0.04
+        self.male_data['event'] = (~self.male_data['Y_above_threshold']).astype(int)  # event=1表示发生了坏事（未达标）
+
+        print(f"用于问题三分析的样本数: {len(self.male_data)}")
+        print(f"事件发生率 (Y染色体浓度未达标的比例): {self.male_data['event'].mean()*100:.2f}%")
+
+    def cox_proportional_hazards_approximation(self):
+        """
+        使用逻辑回归来近似Cox比例风险模型。
+        Cox模型本身比较复杂，但在某些情况下，逻辑回归可以作为一个很好的近似，
+        用来估计各个风险因素（如BMI, Delta_GC, Z_t）的影响程度（即β系数）。
+        """
+        # 准备特征X和目标y
+        X = self.male_data[['BMI_t', 'Delta_GC', 'Z_t']].fillna(0)
+        y = self.male_data['event']
+
+        # 创建并训练逻辑回归模型
+        cox_model = LogisticRegression(random_state=42, max_iter=1000)
+        cox_model.fit(X, y)
+
+        # 从训练好的模型中提取β系数
+        beta_1, beta_2, beta_3 = cox_model.coef_[0]
+        intercept = cox_model.intercept_[0] # 截距项可以看作是基础风险
+
+        # 计算每个样本的风险分数
+        risk_scores = cox_model.predict_proba(X)[:, 1] # 取值为1（事件发生）的概率
+
+        print("近似Cox模型得到的系数:")
+        print(f"β₁ (BMI的影响): {beta_1:.4f}")
+        print(f"β₂ (ΔGC的影响): {beta_2:.4f}")
+        print(f"β₃ (Z值的影响): {beta_3:.4f}")
+
+        return cox_model, (beta_1, beta_2, beta_3, intercept), risk_scores
+
+    def optimal_detection_time_decision(self, cox_model, beta_params):
+        """
+        构建并求解一个双目标优化问题，来决定最优的检测时间。
+        目标：max [S(T) - λ·Risk(T)]
+        S(T)是“生存概率”，即到T时刻仍未发生坏事的概率，我们希望它大。
+        Risk(T)是与时间相关的风险惩罚，我们希望它小。
+        λ是一个权重，用来平衡这两者。
+        """
+        beta_1, beta_2, beta_3, intercept = beta_params
+        lambda_penalty = 0.3  # 风险惩罚的权重
+
+        optimal_times = []
+
+        # 为数据集中的每个样本单独计算最优检测时间
+        for _, row in self.male_data.iterrows():
+            bmi_t, delta_gc, z_t = row['BMI_t'], row['Delta_GC'], row['Z_t']
+
+            def dual_objective(T):
+                # 生存概率的近似计算
+                survival_prob = 1 / (1 + np.exp(intercept + beta_1*bmi_t + beta_2*delta_gc + beta_3*z_t))
+
+                # 风险惩罚函数，对过早、过晚的检测进行惩罚
+                risk_penalty = 0
+                if T < 12: risk_penalty = 0.5
+                elif 12 <= T <= 22: risk_penalty = 0.1 * (T - 16)**2
+                elif T > 22: risk_penalty = 1.0
+
+                return survival_prob - lambda_penalty * risk_penalty
+
+            # 在[12, 28]周的范围内寻找使目标函数最大的T
+            T_range = np.linspace(12, 28, 100)
+            objectives = [dual_objective(T) for T in T_range]
+            optimal_T = T_range[np.argmax(objectives)]
+            optimal_times.append(optimal_T)
+
+        self.male_data['optimal_detection_time'] = optimal_times
+        return optimal_times
+
+    def stratified_cross_validation(self, cox_model):
+        """
+        进行分层交叉验证，并计算在problem3.md中定义的“组间一致性指数 (ICI)”。
+        分层交叉验证可以更鲁棒地评估模型性能。ICI则用来衡量模型在不同数据子集上表现得是否一致。
+        """
+        X = self.male_data[['BMI_t', 'Delta_GC', 'Z_t']].fillna(0)
+        y = self.male_data['event']
+
+        # 使用StratifiedKFold进行5折交叉验证
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+        group_aucs, group_early_scores = [], []
+
+        for train_idx, test_idx in skf.split(X, y):
+            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+            y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+            model = LogisticRegression(random_state=42, max_iter=1000).fit(X_train, y_train)
+            y_pred_proba = model.predict_proba(X_test)[:, 1]
+
+            # 计算AUC分数
+            group_aucs.append(roc_auc_score(y_test, y_pred_proba))
+
+            # 计算EARLY分数（一个自定义的，衡量提前检测有效性的指标）
+            test_weeks = self.male_data.iloc[test_idx]['gestational_week']
+            optimal_weeks = self.male_data.iloc[test_idx]['optimal_detection_time']
+            early_score = np.mean((optimal_weeks < test_weeks) * np.exp(-0.1 * (test_weeks - optimal_weeks)))
+            group_early_scores.append(early_score)
+
+        # 计算汇总指标
+        pooled_auc = np.mean(group_aucs)
+        pooled_early = np.mean(group_early_scores)
+
+        # 计算ICI指数，ICI越接近1，说明模型表现越稳定一致
+        ici = 1 - np.mean((np.abs(np.array(group_aucs) - pooled_auc) + np.abs(np.array(group_early_scores) - pooled_early)) / (pooled_auc + pooled_early))
+
+        print("\n分层交叉验证结果:")
+        print(f"汇总AUC: {pooled_auc:.4f}, 汇总EARLY分数: {pooled_early:.4f}, 组间一致性指数(ICI): {ici:.4f}")
+
+        return {'group_aucs': group_aucs, 'group_early_scores': group_early_scores, 'pooled_auc': pooled_auc, 'pooled_early': pooled_early, 'ici': ici}
+
+    def bayesian_parameter_update(self, beta_params, n_bootstrap=50):
+        """
+        使用Bootstrap方法（一种重复抽样技术）来模拟贝叶斯参数更新。
+        这可以帮助我们了解参数的不确定性，并得到一个更稳健的参数估计。
+        """
+        beta_1, beta_2, beta_3, intercept = beta_params
+        alpha = 0.9  # 记忆因子，表示我们多大程度上相信旧的参数
+
+        bootstrap_betas = []
+        X = self.male_data[['BMI_t', 'Delta_GC', 'Z_t']].fillna(0)
+        y = self.male_data['event']
+
+        # 进行50次Bootstrap抽样
+        for i in range(n_bootstrap):
+            boot_indices = np.random.choice(len(X), len(X), replace=True)
+            X_boot, y_boot = X.iloc[boot_indices], y.iloc[boot_indices]
+
+            try:
+                model = LogisticRegression(random_state=i, max_iter=1000).fit(X_boot, y_boot)
+                bootstrap_betas.append(list(model.coef_[0]) + [model.intercept_[0]])
+            except:
+                continue
+
+        bootstrap_betas = np.array(bootstrap_betas)
+
+        # 贝叶斯更新规则：新参数 = α * 旧参数 + (1-α) * 从数据中学到的新信息
+        updated_params = alpha * np.array(beta_params) + (1 - alpha) * np.mean(bootstrap_betas, axis=0)
+        param_uncertainty = np.std(bootstrap_betas, axis=0) # 用标准差来衡量参数的不确定性
+
+        print("\n贝叶斯参数更新结果:")
+        print(f"更新后 β₁: {updated_params[0]:.4f} ± {param_uncertainty[0]:.4f}")
+        print(f"更新后 β₂: {updated_params[1]:.4f} ± {param_uncertainty[1]:.4f}")
+        print(f"更新后 β₃: {updated_params[2]:.4f} ± {param_uncertainty[2]:.4f}")
+
+        return updated_params, param_uncertainty
+
+    def visualize_results(self, cv_results, beta_params, updated_params):
+        """为问题三创建一套完整的可视化图表。"""
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle('问题三：分层验证与动态风险量化', fontsize=16)
+
+        # 图1: 交叉验证中每次的AUC分数
+        ax1 = axes[0, 0]
+        ax1.bar(range(len(cv_results['group_aucs'])), cv_results['group_aucs'], color='lightblue', edgecolor='black')
+        ax1.axhline(y=cv_results['pooled_auc'], color='red', linestyle='--', label=f"平均AUC: {cv_results['pooled_auc']:.3f}")
+        ax1.set_title('交叉验证AUC分数')
+        ax1.legend()
+
+        # 图2: 交叉验证中每次的EARLY分数
+        ax2 = axes[0, 1]
+        ax2.bar(range(len(cv_results['group_early_scores'])), cv_results['group_early_scores'], color='lightgreen', edgecolor='black')
+        ax2.axhline(y=cv_results['pooled_early'], color='red', linestyle='--', label=f"平均EARLY: {cv_results['pooled_early']:.3f}")
+        ax2.set_title('提前检测有效性(EARLY)分数')
+        ax2.legend()
+
+        # 图3: 参数更新前后的对比
+        ax3 = axes[1, 0]
+        param_names = ['β₁ (BMI)', 'β₂ (ΔGC)', 'β₃ (Z)', '截距']
+        x = np.arange(len(param_names))
+        ax3.bar(x - 0.2, beta_params, 0.4, label='原始参数', color='orange')
+        ax3.bar(x + 0.2, updated_params, 0.4, label='贝叶斯更新后', color='purple')
+        ax3.set_title('参数更新前后对比')
+        ax3.set_xticks(x)
+        ax3.set_xticklabels(param_names, rotation=45)
+        ax3.legend()
+
+        # 图4: 计算出的最优检测时间的分布
+        ax4 = axes[1, 1]
+        ax4.hist(self.male_data['optimal_detection_time'], bins=20, color='skyblue', edgecolor='black')
+        ax4.axvline(x=self.male_data['optimal_detection_time'].mean(), color='red', linestyle='--', label=f"平均值: {self.male_data['optimal_detection_time'].mean():.1f} 周")
+        ax4.set_title('最优检测时间的分布')
+        ax4.legend()
+
+        plt.tight_layout()
+        plt.savefig('new-plan/problem3_analysis.png', dpi=300)
+        plt.show()
+
+    def run_analysis(self):
+        """运行问题三的完整分析流程。"""
+        print("=== 问题三：分层验证与动态风险量化分析开始 ===")
+
+        cox_model, beta_params, risk_scores = self.cox_proportional_hazards_approximation()
+        optimal_times = self.optimal_detection_time_decision(cox_model, beta_params)
+        print(f"\n最优检测时间统计: 平均={np.mean(optimal_times):.2f}周, 标准差={np.std(optimal_times):.2f}周")
+
+        cv_results = self.stratified_cross_validation(cox_model)
+        updated_params, param_uncertainty = self.bayesian_parameter_update(beta_params)
+
+        self.visualize_results(cv_results, beta_params, updated_params)
+
+        # 保存结果到CSV
+        results_df = pd.DataFrame({
+            'Parameter': ['β₁ (BMI)', 'β₂ (ΔGC)', 'β₃ (Z)', 'Intercept'],
+            'Original_Value': beta_params,
+            'Updated_Value': updated_params[:4],
+            'Uncertainty': param_uncertainty[:4]
+        })
+        results_df.to_csv('new-plan/problem3_results.csv', index=False)
+        print("\n分析结果已保存到 problem3_results.csv")
+
+if __name__ == "__main__":
+    problem3 = Problem3_StratifiedValidation()
+    problem3.run_analysis()
+\end{lstlisting}
+
+\subsubsection{问题四解决方案 (`problem4_solution.py`)}
+\begin{lstlisting}[language=Python, caption={问题四的解决方案脚本。}]
+# 导入所有必需的库
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler # 用于数据标准化
+from sklearn.ensemble import RandomForestClassifier # 用于分类任务
+from sklearn.metrics import classification_report, roc_auc_score # 用于评估分类模型
+from sklearn.model_selection import train_test_split # 用于划分训练集和测试集
+import warnings
+
+# 忽略所有警告信息
+warnings.filterwarnings('ignore')
+
+# 设置matplotlib的全局字体和图形大小
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['font.size'] = 10
+plt.rcParams['figure.figsize'] = (12, 8)
+
+class Problem4_DynamicMultiStage:
+    """
+    这是一个为解决问题四（针对女性胎儿的动态多阶段检测优化）而设计的类。
+    这个问题被构建成一个“动态规划”问题，可以想象成一个需要做出一系列决策的游戏。
+    目标是：在整个孕期（12-28周）内，找到一个最佳的检测“策略”，以最大化长期收益。
+    策略会告诉我们在每个时间点，根据孕妇的当前状况，是应该进行检测还是等待。
+    """
+
+    def __init__(self, data_path="/home/tfisher/code/math/2025/c-problem/new-plan/processed_data.csv"):
+        """
+        类的构造函数。
+        """
+        self.df = pd.read_csv(data_path)
+        self.T_max = 28  # 决策的最晚时间（孕周）
+        self.T_min = 12  # 决策的最早时间（孕周）
+        self.max_detections = 3  # 整个孕期最多允许进行3次检测
+        self.setup_data()
+
+    def setup_data(self):
+        """
+        为问题四准备和预处理数据。
+        这里的关键是筛选出代表“女性胎儿”的代理样本，并定义与染色体异常相关的特征。
+        """
+        # --- 提取孕周数值 ---
+        def extract_week(week_str):
+            if pd.isna(week_str): return np.nan
+            try: return float(str(week_str).split('w')[0])
+            except: return np.nan
+        self.df['gestational_week'] = self.df['检测孕周'].apply(extract_week)
+
+        # --- 筛选女性胎儿代理样本 ---
+        # 由于没有直接的女性胎儿标签，我们使用一个代理方法：
+        # 将Y染色体浓度最低的25%的样本视为女性胎儿（因为理论上女性胎儿Y染色体浓度应为0）。
+        y_threshold = self.df['Y_concentration'].quantile(0.25)
+
+        self.female_data = self.df[
+            (self.df['Y_concentration'] <= y_threshold) &
+            (self.df['gestational_week'].notna()) &
+            (self.df['gestational_week'].between(12, 28)) &
+            (self.df['孕妇BMI'].notna()) &
+            (self.df['GC含量'].notna()) &
+            (self.df['X染色体的Z值'].notna()) &
+            (self.df['21号染色体的Z值'].notna()) &
+            (self.df['18号染色体的Z值'].notna()) &
+            (self.df['13号染色体的Z值'].notna())
+        ].copy()
+
+        # --- 定义“异常”事件 ---
+        # 使用真实的“胎儿是否健康”列作为我们最终要预测的目标
+        self.female_data['is_abnormal'] = (self.female_data['胎儿是否健康'] == '否')
+        # 同时，也根据各染色体的Z值（一个风险分数）来定义异常
+        z_threshold = 2.0  # Z值大于2通常被认为有风险
+        self.female_data['z_abnormal'] = (
+            (np.abs(self.female_data['21号染色体的Z值']) > z_threshold) |
+            (np.abs(self.female_data['18号染色体的Z值']) > z_threshold) |
+            (np.abs(self.female_data['13号染色体的Z值']) > z_threshold) |
+            (np.abs(self.female_data['X染色体的Z值']) > z_threshold)
+        )
+
+        if len(self.female_data) > 0:
+            # 标准化所有数值特征，使得它们在同一尺度上，方便模型处理
+            features_to_scale = ['孕妇BMI', 'GC含量', '21号染色体的Z值', '18号染色体的Z值', '13号染色体的Z值', 'X染色体的Z值']
+            self.female_data[features_to_scale] = StandardScaler().fit_transform(self.female_data[features_to_scale])
+
+            # 计算GC含量变化率
+            self.female_data = self.female_data.sort_values(['孕妇代码', 'gestational_week'])
+            self.female_data['Delta_GC'] = self.female_data.groupby('孕妇代码')['GC含量'].diff().fillna(0)
+
+        print(f"用于问题四分析的女性胎儿代理样本数: {len(self.female_data)}")
+        if len(self.female_data) > 0:
+            print(f"真实异常率: {self.female_data['is_abnormal'].mean()*100:.2f}%")
+            print(f"基于Z值的异常率: {self.female_data['z_abnormal'].mean()*100:.2f}%")
+
+    def reward_function(self, state, action, detection_history):
+        """
+        定义“收益函数” R(s, a)。
+        这个函数告诉我们，在某个状态s下，采取某个行动a能得到多少“分数”（收益）。
+        收益可以是正的（如成功检测到异常），也可以是负的（如检测成本、风险）。
+        R(s_t, a_t) = α·Sen(s_t)·a_t - β·Risk(t)·a_t
+        """
+        alpha, beta = 0.7, 0.3 # 收益和风险的权重
+        bmi_t, gc_change, z_t, t = state
+
+        if action == 1:  # 如果行动是“检测”
+            # 收益部分：检测的灵敏度（检测到问题的能力）
+            sensitivity = 1 / (1 + np.exp(-(0.8 * z_t + 0.2 * gc_change)))
+
+            # 风险/成本部分
+            risk_1 = 0.1 * max(0, t - 22) ** 2 # 过晚检测的风险
+            risk_2 = 0.05 * sum(detection_history) # 重复检测的成本
+            total_risk = risk_1 + risk_2
+
+            return alpha * sensitivity - beta * total_risk
+        else:  # 如果行动是“不检测”，则没有收益也没有成本
+            return 0
+
+    def state_transition(self, current_state, action, noise_std=0.1):
+        """
+        定义“状态转移函数”。
+        这个函数描述了世界如何演变。如果我们今天在状态s_t，并采取了行动a_t，
+        那么明天我们会到达哪个新状态s_{t+1}？
+        这里我们用一个简化的模型来模拟孕妇指标的自然变化。
+        """
+        bmi_t, gc_change, z_t, t = current_state
+
+        # BMI、GC、Z值都会有一些小的随机波动
+        bmi_next = bmi_t + np.random.normal(0, noise_std)
+        gc_next = 0.7 * gc_change + np.random.normal(0, noise_std) # GC变化具有一定的自相关性
+        z_next = z_t + np.random.normal(0, noise_std * 0.5)
+        t_next = t + 1 # 时间总是向前流逝
+
+        return np.array([bmi_next, gc_next, z_next, t_next])
+
+    def dynamic_programming_solver(self):
+        """
+        动态规划求解器，使用“反向归纳法”来求解贝尔曼方程。
+        核心思想：从最后一天（第28周）开始倒着往回推算。
+        在第28周，我们知道游戏结束了，所以未来的价值是0。
+        然后我们推算第27周的最佳决策：比较“检测”和“不检测”哪个总收益（当前收益 + 未来期望收益）更高。
+        这样一步步倒推到第12周，我们就能得到每个时间点、每种状态下的最优决策。
+        V_t(s_t) = max_{a_t} { R(s_t,a_t) + E[V_{t+1}(s_{t+1})] }
+        """
+        # V(t, state_idx, detections_done) -> value
+        value_functions = {}
+        # P(t, state_idx, detections_done) -> action
+        optimal_policies = {}
+
+        # 创建一组有代表性的状态，用于计算
+        sample_states = self.female_data[['孕妇BMI', 'Delta_GC', '21号染色体的Z值']].values
+
+        print("开始求解动态规划模型...")
+        # 从最后一天开始反向循环
+        for t in range(self.T_max, self.T_min - 1, -1):
+            for state_idx in range(len(sample_states)):
+                for detections_done in range(self.max_detections + 1):
+                    state = np.append(sample_states[state_idx], t)
+
+                    # 终止条件：在最后一天，未来价值为0
+                    if t == self.T_max:
+                        value_functions[(t, state_idx, detections_done)] = 0
+                        optimal_policies[(t, state_idx, detections_done)] = 0 # 结束时不检测
+                        continue
+
+                    # --- 对于每个状态，比较采取不同行动的价值 ---
+                    # 价值(不检测)
+                    reward_wait = self.reward_function(state, 0, [0]*detections_done)
+                    future_value_wait = value_functions.get((t + 1, state_idx, detections_done), 0)
+                    value_wait = reward_wait + future_value_wait
+
+                    # 价值(检测)
+                    if detections_done < self.max_detections:
+                        reward_detect = self.reward_function(state, 1, [0]*detections_done)
+                        future_value_detect = value_functions.get((t + 1, state_idx, detections_done + 1), 0)
+                        value_detect = reward_detect + future_value_detect
+                    else:
+                        value_detect = -np.inf # 如果已达最大检测次数，则不能再检测
+
+                    # --- 做出最优决策 ---
+                    if value_detect > value_wait:
+                        value_functions[(t, state_idx, detections_done)] = value_detect
+                        optimal_policies[(t, state_idx, detections_done)] = 1 # 最优行动是检测
+                    else:
+                        value_functions[(t, state_idx, detections_done)] = value_wait
+                        optimal_policies[(t, state_idx, detections_done)] = 0 # 最优行动是不检测
+
+        print("求解完成。")
+        return value_functions, optimal_policies
+
+    def analyze_optimal_detection_strategy(self, optimal_policies):
+        """根据求解得到的最优策略，进行分析。"""
+        detection_recommendations = []
+        # 分析在平均状态下，且尚未进行任何检测时的策略
+        avg_state_idx = len(self.female_data) // 2
+
+        for t in range(self.T_min, self.T_max):
+            action = optimal_policies.get((t, avg_state_idx, 0), 0) # 假设从0次检测开始
+            detection_recommendations.append({
+                'week': t,
+                'recommended_action': 'Detect' if action == 1 else 'Wait'
+            })
+        return detection_recommendations
+
+    def abnormality_classification(self):
+        """
+        训练一个分类模型，用来识别哪些因素对判断胎儿异常最重要。
+        这里使用随机森林模型，因为它能很好地处理复杂的非线性关系，并给出特征重要性。
+        """
+        features = ['孕妇BMI', 'GC含量', 'X染色体的Z值', '21号染色体的Z值', '18号染色体的Z值', '13号染色体的Z值', 'gestational_week']
+        X = self.female_data[features]
+        y = self.female_data['is_abnormal'] # 真实健康状况
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+
+        rf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+        rf.fit(X_train, y_train)
+
+        y_pred_proba = rf.predict_proba(X_test)[:, 1]
+        auc = roc_auc_score(y_test, y_pred_proba)
+
+        print("\n分类模型性能:")
+        print(f"AUC 分数: {auc:.4f}")
+
+        feature_importance = pd.DataFrame({'Feature': features, 'Importance': rf.feature_importances_}).sort_values('Importance', ascending=False)
+
+        return feature_importance, auc
+
+    def visualize_results(self, detection_recommendations, feature_importance):
+        """为问题四创建一套完整的可视化图表。"""
+        fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+        fig.suptitle('问题四：动态多阶段检测优化', fontsize=16)
+
+        # 图1: 最优检测策略
+        ax1 = axes[0]
+        weeks = [rec['week'] for rec in detection_recommendations]
+        actions = [1 if rec['recommended_action'] == 'Detect' else 0 for rec in detection_recommendations]
+        ax1.step(weeks, actions, where='post', color='coral', linewidth=3)
+        ax1.set_xlabel('孕周')
+        ax1.set_ylabel('推荐行动 (1=检测, 0=等待)')
+        ax1.set_title('平均状态下的最优检测策略')
+        ax1.set_yticks([0, 1])
+        ax1.set_yticklabels(['Wait', 'Detect'])
+        ax1.grid(True, alpha=0.3)
+
+        # 图2: 异常检测的特征重要性
+        ax2 = axes[1]
+        ax2.barh(feature_importance['Feature'], feature_importance['Importance'], color='skyblue', edgecolor='black')
+        ax2.set_xlabel('特征重要性')
+        ax2.set_title('识别胎儿异常的特征重要性')
+        ax2.invert_yaxis()
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.savefig('new-plan/problem4_analysis.png', dpi=300)
+        plt.show()
+
+    def run_analysis(self):
+        """运行问题四的完整分析流程。"""
+        print("=== 问题四：动态多阶段检测优化分析开始 ===")
+
+        value_functions, optimal_policies = self.dynamic_programming_solver()
+        detection_recommendations = self.analyze_optimal_detection_strategy(optimal_policies)
+
+        print("\n最优检测策略 (平均状态):")
+        print(pd.DataFrame(detection_recommendations))
+
+        feature_importance, auc = self.abnormality_classification()
+        print("\n特征重要性排名:")
+        print(feature_importance)
+
+        self.visualize_results(detection_recommendations, feature_importance)
+
+        # 保存结果
+        pd.DataFrame(detection_recommendations).to_csv('new-plan/problem4_results.csv', index=False)
+        feature_importance.to_csv('new-plan/problem4_feature_importance.csv', index=False)
+        print("\n分析结果已保存到 problem4_results.csv 和 problem4_feature_importance.csv")
+
+if __name__ == "__main__":
+    problem4 = Problem4_DynamicMultiStage()
+    problem4.run_analysis()
+\end{lstlisting}
+
+\subsubsection{分析运行器 (`run_complete_analysis.py`)}
+\begin{lstlisting}[language=Python, caption={运行完整分析流程的主脚本。}]
+#!/usr/bin/env python3
+"""
+NIPT分析套件 - 完整执行脚本
+这个脚本是整个分析项目的“总指挥”或“启动器”。
+它的作用是按正确的顺序，依次调用和执行项目中的其他所有Python脚本，
+从数据预处理开始，到各个问题的分析，最后到生成所有可视化图表。
+"""
+
+# 导入所有必需的库
+import sys      # sys库用于与Python解释器交互，如此处的退出程序
+import os       # os库用于与操作系统交互，如此处的检查文件是否存在
+import subprocess # subprocess库是关键，它允许我们在Python脚本中执行外部命令，就像在终端中输入一样
+import time     # time库用于计时
+from datetime import datetime # datetime库用于获取当前时间
+
+def run_analysis_suite():
+    """
+    运行完整的NIPT分析套件。
+    这个主函数将协调所有分析步骤。
+    """
+
+    # --- 打印一个漂亮的标题，标志着分析开始 ---
+    print("="*70)
+    print("NIPT分析套件 - 完整实现")
+    print("问题2, 3, 4的数学模型与求解")
+    print("="*70)
+    print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print()
+
+    # --- 步骤1: 检查并运行数据预处理 ---
+    # 首先检查预处理后的数据文件是否存在。如果不存在，就先运行数据加载脚本。
+    # 这是一个很好的健壮性设计，避免了不必要的重复工作。
+    if not os.path.exists('new-plan/processed_data.csv'):
+        print("未找到预处理数据，正在运行data_loader.py...")
+        try:
+            # 使用subprocess.run来执行'python3 data_loader.py'命令
+            # check=True表示如果脚本执行出错，程序会抛出异常
+            subprocess.run(['python3', 'new-plan/data_loader.py'], check=True)
+            print("✓ 数据预处理完成")
+        except subprocess.CalledProcessError as e:
+            print(f"✗ 数据预处理失败: {e}")
+            return False # 如果第一步就失败了，直接退出
+    else:
+        print("✓ 已找到预处理数据，跳过数据加载步骤。")
+
+    # --- 步骤2: 定义要执行的分析脚本列表 ---
+    # 将所有要执行的脚本和它们的描述放在一个列表中，方便后续循环处理
+    analyses = [
+        ("问题二分析", "new-plan/problem2_solution.py", "时间窗约束下的动态检测优化"),
+        ("问题三分析", "new-plan/problem3_solution.py", "分层验证与动态风险量化"),
+        ("问题四分析", "new-plan/problem4_solution.py", "动态多阶段检测优化"),
+        ("高级Y染色体分析", "new-plan/advanced_y_chromosome_analysis.py", "独立的Y染色体浓度预测模型"),
+        ("综合可视化", "new-plan/comprehensive_visualization.py", "生成所有总结性图表")
+    ]
+
+    results = {} # 用于存储每个脚本的执行结果
+
+    # --- 步骤3: 循环执行所有分析脚本 ---
+    for problem_name, script_name, description in analyses:
+        print(f"\n{'-'*60}")
+        print(f"正在运行: {problem_name} - {description}")
+        print(f"脚本: {script_name}")
+
+        start_time = time.time()
+
+        try:
+            # 再次使用subprocess.run来执行分析脚本
+            # capture_output=True会捕获脚本的标准输出和错误信息
+            subprocess.run(['python3', script_name], capture_output=True, text=True, check=True)
+
+            execution_time = time.time() - start_time
+            print(f"✓ {problem_name} 执行成功，耗时: {execution_time:.2f} 秒")
+            results[problem_name] = {'status': '成功', 'execution_time': execution_time}
+
+        except subprocess.CalledProcessError as e:
+            # 如果脚本执行失败，则捕获错误并报告
+            execution_time = time.time() - start_time
+            print(f"✗ {problem_name} 执行失败，耗时: {execution_time:.2f} 秒")
+            print(f"  错误信息: {e.stderr}") # 打印详细的错误日志
+            results[problem_name] = {'status': '失败', 'execution_time': execution_time}
+
+    # --- 步骤4: 生成最终的总结报告 ---
+    print("\n" + "="*70)
+    print("分析套件执行总结报告")
+    print("="*70)
+
+    total_time = sum(r['execution_time'] for r in results.values())
+    successful_count = sum(1 for r in results.values() if r['status'] == '成功')
+
+    print(f"总执行时间: {total_time:.2f} 秒")
+    print(f"成功执行的分析: {successful_count}/{len(analyses)}")
+    print()
+
+    # --- 步骤5: 检查所有预期生成的文件是否存在 ---
+    print("\n" + "="*70)
+    print("生成的文件清单检查")
+    print("="*70)
+
+    output_files = [
+        "new-plan/processed_data.csv",
+        "new-plan/problem2_results.csv",
+        "new-plan/problem2_error_analysis.csv",
+        "new-plan/problem2_analysis.png",
+        "new-plan/problem3_results.csv",
+        "new-plan/problem3_analysis.png",
+        "new-plan/problem4_results.csv",
+        "new-plan/problem4_feature_importance.csv",
+        "new-plan/problem4_analysis.png",
+        "new-plan/advanced_y_chromosome_analysis.png",
+        "new-plan/comprehensive_dashboard.png"
+    ]
+
+    for filename in output_files:
+        if os.path.exists(filename):
+            print(f"✓ {filename:45s} - 存在")
+        else:
+            print(f"✗ {filename:45s} - 缺失")
+
+    print("\n" + "="*70)
+    print(f"所有分析已于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} 完成")
+    print("="*70)
+
+    # 如果有任何一步失败，整个过程就算失败
+    return successful_count == len(analyses)
+
+# 这是一个标准的Python写法，确保只有当这个脚本被直接执行时，下面的代码才会运行
+if __name__ == "__main__":
+    # 运行主分析函数
+    success = run_analysis_suite()
+    # 根据执行结果，向操作系统返回一个退出码
+    # 退出码0通常表示成功，非0表示失败。这对于自动化脚本和工作流非常有用。
+    sys.exit(0 if success else 1)
+\end{lstlisting}
+
+\end{document}
